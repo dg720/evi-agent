@@ -3,6 +3,7 @@ services:
     name: evi-backend
     env: python
     rootDir: backend
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -10,12 +11,11 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         value: "*"
-  - type: web
+  - type: static_site
     name: evi-frontend
-    env: node
     rootDir: evi-healthcare-companion
     buildCommand: npm install && npm run build
-    startCommand: npm run start
+    publishDir: out
     envVars:
       - key: NODE_VERSION
         value: "20"
