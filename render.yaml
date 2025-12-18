@@ -24,5 +24,5 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
-      - key: NEXT_PUBLIC_API_BASE_URL
+      - key: BACKEND_API_BASE_URL
         value: https://evi-backend.onrender.com

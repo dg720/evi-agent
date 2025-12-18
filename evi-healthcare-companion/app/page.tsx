@@ -59,8 +59,6 @@ export default function Home() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
-
   const chatSectionRef = useRef<HTMLDivElement>(null)
   const howItWorksRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -98,10 +96,14 @@ export default function Home() {
     setIsThinking(true)
     setErrorMessage(null)
 
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 20000)
+
     try {
-      const response = await fetch(`${apiBaseUrl}/api/chat`, {
+      const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           session_id: sessionId,
           message: trimmed,
@@ -120,7 +122,11 @@ export default function Home() {
         setPromptSuggestions(payload.prompt_suggestions)
       }
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Something went wrong. Please try again.")
+      const isAbort = error instanceof Error && error.name === "AbortError"
+      const fallback = isAbort
+        ? "The request timed out. Please try again."
+        : "Something went wrong. Please try again."
+      setErrorMessage(isAbort ? fallback : error instanceof Error ? error.message : fallback)
       setMessages((prev) => [
         ...prev,
         {
@@ -130,6 +136,7 @@ export default function Home() {
         },
       ])
     } finally {
+      clearTimeout(timeoutId)
       setIsThinking(false)
     }
   }
