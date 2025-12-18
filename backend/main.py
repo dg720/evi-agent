@@ -1,0 +1,80 @@
+"""FastAPI service exposing the Evi agent for the frontend."""
+
+import os
+import uuid
+from threading import Lock
+from typing import Dict, List, Optional
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from agent import AgentSession
+
+
+class ChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    session_id: str
+    reply: str
+    prompt_suggestions: List[str]
+
+
+app = FastAPI(title="Evi Healthcare Companion API")
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "*").split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+_sessions: Dict[str, AgentSession] = {}
+_session_lock = Lock()
+
+
+def _get_or_create_session(session_id: Optional[str]) -> (str, AgentSession):
+    with _session_lock:
+        if session_id and session_id in _sessions:
+            return session_id, _sessions[session_id]
+        new_id = session_id or str(uuid.uuid4())
+        _sessions[new_id] = AgentSession()
+        return new_id, _sessions[new_id]
+
+
+@app.get("/api/health")
+def health_check() -> Dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+def chat(payload: ChatRequest) -> ChatResponse:
+    if not os.getenv("OPENAI_API_KEY"):
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured.")
+
+    session_id, session = _get_or_create_session(payload.session_id)
+
+    message = payload.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+
+    try:
+        reply = session.step(message)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Agent error: {exc}") from exc
+
+    return ChatResponse(
+        session_id=session_id,
+        reply=reply,
+        prompt_suggestions=session.prompt_suggestions,
+    )
