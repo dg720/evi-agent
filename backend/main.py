@@ -3,7 +3,7 @@
 import os
 import uuid
 from threading import Lock
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +21,18 @@ class ChatResponse(BaseModel):
     session_id: str
     reply: str
     prompt_suggestions: List[str]
+    useful_links: List[Dict[str, str]]
+    user_profile: Dict[str, Any]
+
+
+class ProfileRequest(BaseModel):
+    session_id: Optional[str] = None
+    profile: Dict[str, Any]
+
+
+class ProfileResponse(BaseModel):
+    session_id: str
+    user_profile: Dict[str, Any]
 
 
 app = FastAPI(title="Evi Healthcare Companion API")
@@ -77,4 +89,16 @@ def chat(payload: ChatRequest) -> ChatResponse:
         session_id=session_id,
         reply=reply,
         prompt_suggestions=session.prompt_suggestions,
+        useful_links=session.last_useful_links,
+        user_profile=session.user_profile,
     )
+
+
+@app.post("/api/profile", response_model=ProfileResponse)
+def update_profile(payload: ProfileRequest) -> ProfileResponse:
+    session_id, session = _get_or_create_session(payload.session_id)
+    if not isinstance(payload.profile, dict):
+        raise HTTPException(status_code=400, detail="Profile must be an object.")
+
+    session.set_user_profile(payload.profile)
+    return ProfileResponse(session_id=session_id, user_profile=session.user_profile)

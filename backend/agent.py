@@ -4,17 +4,25 @@ import json
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 from openai import OpenAI, RateLimitError
 
+from config import (
+    ACTION_KEYWORDS,
+    CANONICAL_LINKS,
+    ONBOARDING_QUESTIONS,
+    ONBOARDING_TRIGGER_PHRASES,
+)
+from extract import extract_profile, strip_profile_tag
 from prompts import intro_prompt, build_system_prompt
 from tools import (
+    emergency_response,
     guided_search,
     nhs_111_live_triage,
+    safety_check,
     tool_nearest_nhs_services,
-    tool_onboarding,
     tool_safety,
     tools,
 )
@@ -24,28 +32,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 
-PROFILE_TAG_RE = re.compile(r"<USER_PROFILE>.*?</USER_PROFILE>", re.DOTALL)
-
-
-def extract_profile(text: str) -> Optional[Dict[str, Any]]:
-    """Extract JSON profile dict from assistant text, if present."""
-    match = re.search(r"<USER_PROFILE>(.*?)</USER_PROFILE>", text, re.DOTALL)
-    if not match:
-        return None
-    raw = match.group(1).strip()
-    if not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return None
-
-
-def strip_profile_tag(text: str) -> str:
-    """Remove profile tag wrapper so only user-facing content remains."""
-    return PROFILE_TAG_RE.sub("", text).strip()
-
-
 # --- Tool Registry for Python-side Execution ---
 def execute_tool(tool_name: str, arguments: Dict[str, Any]):
     """Dispatch supported tool calls by name."""
@@ -53,8 +39,6 @@ def execute_tool(tool_name: str, arguments: Dict[str, Any]):
         return tool_nearest_nhs_services(arguments)
     if tool_name == "trigger_safety_protocol":
         return tool_safety(arguments)
-    if tool_name == "onboarding":
-        return tool_onboarding(arguments)
     if tool_name == "guided_search":
         return guided_search(arguments)
     if tool_name == "nhs_111_live_triage":
@@ -75,15 +59,14 @@ class AgentSession:
         self.system_prompt = build_system_prompt(self.user_profile)
 
         self.onboarding_active = False
-        self.onboarding_spec: Optional[Dict[str, Any]] = None
         self.onboarding_state: Optional[Dict[str, Any]] = None
 
         self.triage_active = False
         self.triage_known_answers: Dict[str, Any] = {}
-        self.triage_state: Optional[Dict[str, Any]] = None
         self.triage_question_count = 0
 
         self.prompt_suggestions: List[str] = []
+        self.last_useful_links: List[Dict[str, str]] = []
 
         self.HISTORY_WINDOW = 15
         self.MAX_OUT = 250
@@ -107,22 +90,19 @@ class AgentSession:
                 time.sleep(0.2)
         raise
 
-    def _update_state_from_tool(self, tool_name: str, tool_result: Any):
-        """Integrate tool outputs into onboarding/triage state tracking."""
-        # onboarding activation
-        if isinstance(tool_result, dict) and tool_result.get("mode") == "llm_multiturn_onboarding":
-            self.onboarding_active = True
-            self.onboarding_spec = tool_result
-            self.onboarding_state = {
-                "questions": tool_result.get("questions", []),
-                "current_idx": 0,
-                "answers": {},
-                "expecting_answer": False,
-                "reprompted": False,
+    def set_user_profile(self, profile: Dict[str, Any]) -> None:
+        """Set the profile from the UI and rebuild system prompt."""
+        self.user_profile = profile
+        self.system_prompt = build_system_prompt(self.user_profile)
+        self.conversation_history.append(
+            {
+                "role": "system",
+                "content": f"Updated user profile for memory:\n{self.user_profile}",
             }
-            self.triage_active = False
+        )
 
-        # triage tracking
+    def _update_state_from_tool(self, tool_name: str, tool_result: Any):
+        """Integrate tool outputs into triage state tracking."""
         parsed = None
         try:
             parsed = tool_result if isinstance(tool_result, dict) else json.loads(tool_result)
@@ -141,9 +121,30 @@ class AgentSession:
 
         return parsed
 
+    def _fallback_triage_result(self, postcode_full: str) -> Dict[str, Any]:
+        return {
+            "status": "final",
+            "severity_level": "medium",
+            "suggested_service": "NHS_111",
+            "rationale": "I could not complete live triage, so I recommend NHS 111 for safe routing.",
+            "postcode_full": postcode_full,
+            "should_lookup": False,
+        }
+
     # -----------------------------
     # ONBOARDING HELPERS
     # -----------------------------
+    def _start_onboarding(self) -> None:
+        self.onboarding_active = True
+        self.onboarding_state = {
+            "questions": ONBOARDING_QUESTIONS,
+            "current_idx": 0,
+            "answers": {},
+            "expecting_answer": False,
+            "reprompted": False,
+        }
+        self.triage_active = False
+
     def _onboarding_current_question(self) -> Optional[Dict[str, Any]]:
         """Return the current onboarding question or None if finished."""
         if not self.onboarding_state:
@@ -161,7 +162,7 @@ class AgentSession:
             return self._finalize_onboarding_flow()
         self.onboarding_state["expecting_answer"] = True
         self.onboarding_state["reprompted"] = False
-        return question.get("question", "").strip()
+        return str(question.get("question", "")).strip()
 
     def _normalize_onboarding_answer(self, raw: str):
         """Normalize onboarding input and indicate if a reprompt is needed."""
@@ -173,11 +174,33 @@ class AgentSession:
             return None, False
         return text, False
 
+    def _derive_postcode_fields(self, postcode_raw: str) -> Tuple[Optional[str], Optional[str]]:
+        text = (postcode_raw or "").strip().upper()
+        if not text:
+            return None, None
+
+        compact = text.replace(" ", "")
+        full_match = re.match(r"^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$", compact)
+        if full_match:
+            full = f"{compact[:-3]} {compact[-3:]}"
+            area = full.split(" ")[0]
+            return full, area
+
+        area = text.split(" ")[0]
+        return None, area
+
     def _finalize_onboarding_flow(self) -> str:
         """Persist profile, add deterministic eligibility summary, and close onboarding."""
         questions = self.onboarding_state.get("questions") if self.onboarding_state else []
         answers = self.onboarding_state.get("answers") if self.onboarding_state else {}
         profile = {q.get("key"): answers.get(q.get("key")) for q in (questions or [])}
+
+        postcode_full, postcode_area = self._derive_postcode_fields(str(profile.get("postcode") or ""))
+        if postcode_full:
+            profile["postcode_full"] = postcode_full
+        if postcode_area:
+            profile["postcode_area"] = postcode_area
+
         profile_json = json.dumps(profile)
         completion_note = "Onboarding is complete. I have saved these details for future chats."
         eligibility = self._eligibility_summary_from_profile(profile)
@@ -188,137 +211,38 @@ class AgentSession:
         """Derive likely service eligibility based on stored onboarding answers."""
         stay = (profile.get("stay_length") or "").lower()
         visa = (profile.get("visa_status") or "").lower()
-        postcode = profile.get("postcode") or ""
+        postcode_full = profile.get("postcode_full") or ""
+        postcode_area = profile.get("postcode_area") or ""
         gp_registered = str(profile.get("gp_registered") or "").lower()
 
         long_stay = any(k in stay for k in ["year", "yr", "6", "twelve", "12", "long", "permanent", "settled"])
         has_uk_status = any(k in visa for k in ["student", "work", "skilled", "settled", "ilr", "british", "uk"])
-        has_address = bool(postcode.strip())
 
         gp_line = (
-            "Likely eligible to register with a GP (typical for stays ~6+ months). "
-            "Use your UK address/postcode; bring ID and proof of address if asked."
+            "Likely eligible to register with a GP (typical for stays 6+ months). "
+            "Use your UK address and bring ID/proof of address if asked."
             if long_stay or has_uk_status
-            else "May be asked about length of stay for GP registration; urgent/111/A&E are still available."
+            else "Short-term visitors may be asked about stay length for GP registration; urgent/111/A&E remain available."
         )
         urgent_line = "Urgent and emergency care (NHS 111, A&E) are available regardless of GP registration."
         registered_note = "You already have a GP registered." if "yes" in gp_registered else ""
-        location_note = f"Postcode on file: {postcode}" if postcode else ""
+        location_note = f"Postcode on file: {postcode_full}" if postcode_full else f"Area on file: {postcode_area}" if postcode_area else ""
+        charges_note = (
+            "Some services may have charges depending on visa/immigration status. "
+            "If unsure, check NHS charging guidance or ask your university support team."
+        )
 
         return "\n".join(
             [
                 "Based on your details, here are likely options:",
                 f"- {gp_line}",
                 f"- {urgent_line}",
+                f"- {charges_note}",
                 f"- {registered_note}".strip(" -"),
                 f"- {location_note}".strip(" -"),
                 "If you'd like, I can look up nearby GP practices or urgent care options.",
             ]
         )
-
-    # -----------------------------
-    # TRIAGE HELPERS (codified)
-    # -----------------------------
-    def _start_triage_flow(self) -> str:
-        """Initialize deterministic triage question list (NHS 111 inspired)."""
-        self.triage_state = {
-            "questions": [
-                ("severity", "On a scale of 0 to 10, how severe are your symptoms right now?"),
-                ("fluids", "Have you been able to keep down food or fluids in the last 12 hours?"),
-                ("onset", "When did the symptoms start (time or days ago)?"),
-                (
-                    "red_flags",
-                    "Do you have any of these: chest pain, difficulty breathing, heavy bleeding, "
-                    "sudden weakness/numbness, or a seizure in the last 24 hours?",
-                ),
-                ("other", "Any fever, rash, severe headache, pregnancy, or long-term conditions affecting immunity?"),
-            ],
-            "answers": {},
-            "idx": 0,
-        }
-        self.triage_active = True
-        return "I'll follow NHS 111 style triage. Please answer a few quick questions so I can route you correctly."
-
-    def _triage_next_question(self) -> Optional[str]:
-        """Return next triage question text or None when all asked."""
-        if not self.triage_state:
-            return None
-        idx = self.triage_state.get("idx", 0)
-        qs = self.triage_state.get("questions", [])
-        if idx >= len(qs):
-            return None
-        return qs[idx][1]
-
-    def _triage_record_answer(self, user_input: str) -> None:
-        """Store user triage answer and advance the pointer."""
-        if not self.triage_state:
-            return
-        idx = self.triage_state.get("idx", 0)
-        qs = self.triage_state.get("questions", [])
-        if idx >= len(qs):
-            return
-        key = qs[idx][0]
-        self.triage_state["answers"][key] = user_input.strip()
-        self.triage_state["idx"] = idx + 1
-
-    def _triage_summary(self) -> str:
-        """Summarize triage inputs, suggest routing, and offer postcode-based lookup."""
-        answers = (self.triage_state or {}).get("answers", {})
-        severity = answers.get("severity", "")
-        fluids = answers.get("fluids", "").lower()
-        red_flags = answers.get("red_flags", "").lower()
-        onset = answers.get("onset", "")
-        other = answers.get("other", "")
-        postcode = (self.user_profile or {}).get("postcode") or ""
-
-        def has_yes(text):
-            return any(token in text for token in ["yes", "y", "true", "1"])
-
-        red_flagged = has_yes(red_flags)
-        severe = False
-        try:
-            severe = float(severity) >= 8
-        except Exception:
-            severe = False
-        dehydrated = any(k in fluids for k in ["no", "not", "can't", "cannot", "unable"])
-
-        if red_flagged:
-            recommended_service = "A&E"
-            route = (
-                "This sounds like a red-flag situation. NHS 111 guidance is to call 999 or go to A&E if safe to travel. "
-                "If you're unsure, contact NHS 111 immediately for clinical advice."
-            )
-        elif severe or dehydrated:
-            recommended_service = "A&E"
-            route = (
-                "NHS 111 would typically advise urgent clinical review. Please contact NHS 111 now. "
-                "They may direct you to urgent care/A&E if warranted."
-            )
-        else:
-            recommended_service = "GP"
-            route = (
-                "You likely need non-emergency care. NHS 111 would usually suggest: "
-                "register/contact your GP for review, and use NHS 111 online if symptoms change or worsen. "
-                "If new severe symptoms arise, call 111 or 999 as appropriate."
-            )
-
-        postcode_note = (
-            f"I can find the nearest {recommended_service} options using your postcode on record ({postcode})."
-            if postcode
-            else f"I can look up the nearest {recommended_service} options if you share your postcode."
-        )
-
-        summary = (
-            "Thanks, here's a quick triage summary (following NHS 111 style steps):\n"
-            f"- Severity: {severity or 'not given'}\n"
-            f"- Fluids: {answers.get('fluids', 'not given')}\n"
-            f"- Onset: {onset or 'not given'}\n"
-            f"- Red flags: {answers.get('red_flags', 'not given')}\n"
-            f"- Other: {other or 'not given'}\n\n"
-            f"{route}\n"
-            f"{postcode_note} If you want, I can also help with GP registration or local services."
-        )
-        return summary
 
     def _handle_onboarding_answer(self, user_input: str) -> str:
         if not self.onboarding_state:
@@ -345,66 +269,60 @@ class AgentSession:
             return self._prompt_next_onboarding_question()
         return self._finalize_onboarding_flow()
 
-    def _process_final_reply(self, agent_reply: str) -> str:
-        agent_reply = self._ensure_useful_links(agent_reply)
-        clean_reply = strip_profile_tag(agent_reply)
-        self.conversation_history.append({"role": "assistant", "content": clean_reply})
+    def _contains_action(self, text: str) -> bool:
+        lowered = (text or "").lower()
+        return any(keyword in lowered for keyword in ACTION_KEYWORDS)
 
-        maybe_profile = extract_profile(agent_reply)
-        if maybe_profile:
-            self.user_profile = maybe_profile
-            self.system_prompt = build_system_prompt(self.user_profile)
+    def _select_useful_links(self, user_input: str, agent_reply: str) -> List[Dict[str, str]]:
+        lowered = f"{user_input}\n{agent_reply}".lower()
+        tags = set()
 
-            # reset modes
-            self.onboarding_active = False
-            self.onboarding_spec = None
-            self.onboarding_state = None
-            self.triage_active = False
-            self.triage_known_answers = {}
+        if "gp" in lowered or "register" in lowered:
+            tags.update(["gp", "register"])
+        if "111" in lowered or "urgent" in lowered or "triage" in lowered:
+            tags.add("111")
+        if "a&e" in lowered or "a and e" in lowered or "emergency" in lowered:
+            tags.update(["111", "services"])
+        if "mental" in lowered or "wellbeing" in lowered:
+            tags.update(["mental", "wellbeing", "lbs"])
+        if "eligib" in lowered or "visa" in lowered:
+            tags.update(["eligibility", "services"])
+        if "nhs" in lowered:
+            tags.add("services")
 
-            self.conversation_history.append(
-                {
-                    "role": "system",
-                    "content": f"Updated user profile for memory:\n{self.user_profile}",
-                }
-            )
+        if not tags and not self._contains_action(lowered):
+            return []
 
-            follow_up = self._profile_followups()
-            if follow_up:
-                self.conversation_history.append({"role": "assistant", "content": follow_up})
-                clean_reply = clean_reply + "\n\n" + follow_up
+        selected = []
+        for link in CANONICAL_LINKS:
+            if tags.intersection(link.get("tags", [])):
+                selected.append({"title": link["title"], "url": link["url"]})
 
-        return clean_reply
+        if not selected:
+            selected = [
+                {"title": "NHS services guide", "url": "https://www.nhs.uk/using-the-nhs/nhs-services/"},
+                {"title": "LBS health and wellbeing", "url": "https://www.london.edu/masters-experience/student-support"},
+            ]
 
-    def _ensure_useful_links(self, agent_reply: str) -> str:
-        """
-        Post-process assistant text to ensure common Useful links are concrete NHS URLs.
-        """
-        if "Useful links" not in agent_reply:
+        return selected[:4]
+
+    def _inject_useful_links(self, agent_reply: str, links: List[Dict[str, str]]) -> str:
+        if not links:
             return agent_reply
+
+        stripped = agent_reply.strip()
+        if stripped.startswith("<USER_PROFILE>") and stripped.endswith("</USER_PROFILE>"):
+            return agent_reply
+
+        new_section = ["Useful links", *[f"- {link['title']}: {link['url']}" for link in links]]
 
         lines = agent_reply.splitlines()
-        if not any(line.strip().lower().startswith("useful links") for line in lines):
-            return agent_reply
-
-        canonical_links = [
-            ("Find a GP", "https://www.nhs.uk/service-search/find-a-gp"),
-            ("Register with a GP", "https://www.nhs.uk/nhs-services/gps/how-to-register-with-a-gp-surgery/"),
-            ("Use NHS 111 online", "https://111.nhs.uk/"),
-            ("NHS services guide", "https://www.nhs.uk/using-the-nhs/nhs-services/"),
-            ("LBS health and wellbeing", "https://www.london.edu/masters-experience/student-support"),
-            ("LBS mental wellbeing support", "https://www.london.edu/masters-experience/student-support/mental-health"),
-        ]
-
-        new_section = ["Useful links", *[f"- {title}: {url}" for title, url in canonical_links]]
-
         rebuilt = []
         idx = 0
         replaced = False
         while idx < len(lines):
             line = lines[idx]
             if not replaced and line.strip().lower().startswith("useful links"):
-                # skip old section
                 idx += 1
                 while idx < len(lines) and lines[idx].strip() != "":
                     idx += 1
@@ -414,7 +332,37 @@ class AgentSession:
             rebuilt.append(line)
             idx += 1
 
+        if not replaced:
+            rebuilt.append("")
+            rebuilt.extend(new_section)
+
         return "\n".join(rebuilt)
+
+    def _process_final_reply(self, user_input: str, agent_reply: str) -> str:
+        useful_links = self._select_useful_links(user_input, agent_reply)
+        if useful_links:
+            agent_reply = self._inject_useful_links(agent_reply, useful_links)
+        self.last_useful_links = useful_links
+
+        clean_reply = strip_profile_tag(agent_reply)
+        self.conversation_history.append({"role": "assistant", "content": clean_reply})
+
+        maybe_profile = extract_profile(agent_reply)
+        if maybe_profile:
+            self.set_user_profile(maybe_profile)
+
+            # reset modes
+            self.onboarding_active = False
+            self.onboarding_state = None
+            self.triage_active = False
+            self.triage_known_answers = {}
+
+            follow_up = self._profile_followups()
+            if follow_up:
+                self.conversation_history.append({"role": "assistant", "content": follow_up})
+                clean_reply = clean_reply + "\n\n" + follow_up
+
+        return clean_reply
 
     def _profile_followups(self) -> str:
         if not self.user_profile:
@@ -457,7 +405,8 @@ class AgentSession:
             "3) Duration: Planning to stay 6+ months (typical for GP registration).\n"
             "4) ID/proof: Ability to show ID plus address (e.g., bank statement/tenancy) if asked.\n"
             "5) Visitors: Short-stay visitors may still access urgent or emergency care.\n\n"
-            "Want me to confirm with your details? I can start onboarding now to collect postcode, visa/status, UK stay length, and GP status, then I'll summarise what you're eligible for. Just say 'onboarding' to begin."
+            "Want me to confirm with your details? I can start onboarding now to collect postcode, visa/status, "
+            "UK stay length, and GP status, then I'll summarize what you're eligible for. Just say 'onboarding' to begin."
         )
 
     def _generate_prompt_suggestions(self, last_reply: str) -> List[str]:
@@ -492,23 +441,44 @@ class AgentSession:
         ]
         return fallback
 
+    def _is_onboarding_request(self, user_input: str) -> bool:
+        lowered = user_input.lower()
+        return any(phrase in lowered for phrase in ONBOARDING_TRIGGER_PHRASES)
+
+    def _is_search_request(self, user_input: str) -> bool:
+        lowered = user_input.lower()
+        return "search" in lowered or "find info" in lowered or "find information" in lowered
+
     def step(self, user_input: str) -> str:
         """
         Process a single user turn and return the assistant reply (profile tags stripped).
         """
         self.conversation_history.append({"role": "user", "content": user_input})
 
+        if safety_check(user_input):
+            reply = emergency_response()
+            self.last_useful_links = []
+            self.conversation_history.append({"role": "assistant", "content": reply})
+            return reply
+
+        # -------------------------------
+        # SHORT-CIRCUIT: ONBOARDING TRIGGER
+        # -------------------------------
+        if self._is_onboarding_request(user_input) and not self.onboarding_active:
+            self._start_onboarding()
+            reply = self._prompt_next_onboarding_question()
+            return self._process_final_reply(user_input, reply)
+
         # -------------------------------
         # SHORT-CIRCUIT: ACTIVE ONBOARDING
         # -------------------------------
         if self.onboarding_active and self.onboarding_state:
-            # If we have not yet asked the first question, do so now.
             if not self.onboarding_state.get("expecting_answer", False) and self.onboarding_state.get("current_idx", 0) == 0:
                 reply = self._prompt_next_onboarding_question()
-                return self._process_final_reply(reply)
+                return self._process_final_reply(user_input, reply)
 
             reply = self._handle_onboarding_answer(user_input)
-            return self._process_final_reply(reply)
+            return self._process_final_reply(user_input, reply)
 
         # -------------------------------
         # SHORT-CIRCUIT: ELIGIBILITY QUERY
@@ -516,24 +486,12 @@ class AgentSession:
         lower_input = user_input.lower()
         if "eligible" in lower_input or "eligibility" in lower_input:
             reply = self._eligibility_response()
-            return self._process_final_reply(reply)
+            return self._process_final_reply(user_input, reply)
 
         # -------------------------------
         # PINNED CONTEXT (short!)
         # -------------------------------
         pinned = []
-
-        if self.onboarding_active and self.onboarding_spec is not None:
-            pinned.append(
-                {
-                    "role": "system",
-                    "content": (
-                        "ONBOARDING MODE IS ACTIVE. "
-                        "Ask the next onboarding question verbatim, in order. "
-                        "Do NOT start triage or search during onboarding."
-                    ),
-                }
-            )
 
         if self.triage_active:
             pinned.append(
@@ -554,11 +512,15 @@ class AgentSession:
         # -------------------------------
         # FIRST MODEL CALL
         # -------------------------------
+        toolset = tools
+        if not self._is_search_request(user_input):
+            toolset = [tool for tool in tools if tool.get("name") != "guided_search"]
+
         resp = self.safe_create(
             model="gpt-4o-mini",
             store=True,
             input=[{"role": "system", "content": self.system_prompt}, *pinned, *self.conversation_history[-self.HISTORY_WINDOW :]],
-            tools=tools,
+            tools=toolset,
             tool_choice="auto",
             max_output_tokens=self.MAX_OUT,
         )
@@ -609,6 +571,11 @@ class AgentSession:
 
                 parsed_tool = self._update_state_from_tool(tool_name, tool_result)
 
+                if tool_name == "nhs_111_live_triage":
+                    if not isinstance(parsed_tool, dict) or parsed_tool.get("status") not in {"need_more_info", "final"}:
+                        parsed_tool = self._fallback_triage_result(args.get("postcode_full", "") or "")
+                        tool_result = parsed_tool
+
                 tool_output_str = tool_result if isinstance(tool_result, str) else json.dumps(tool_result)
 
                 outputs.append(
@@ -652,14 +619,10 @@ class AgentSession:
                 model="gpt-4o-mini",
                 previous_response_id=final_response.id,
                 input=outputs,
-                tools=tools,
+                tools=toolset,
                 tool_choice="auto",
                 max_output_tokens=self.MAX_OUT,
             )
-
-            # If onboarding just became active, break early and handle questions deterministically.
-            if self.onboarding_active and self.onboarding_state:
-                break
 
         # -------------------------------
         # FINAL TEXT RESPONSE
@@ -680,12 +643,12 @@ class AgentSession:
                         "content": (
                             "You MUST respond to the user now in plain text. "
                             "Do NOT call any tools. "
-                            "If triage is incomplete, ask the next 1–3 triage follow-up questions. "
+                            "If triage is incomplete, ask the next 1-3 triage follow-up questions. "
                             "If triage is complete, give routing and next steps."
                         ),
                     },
                 ],
-                tools=tools,
+                tools=toolset,
                 tool_choice="none",
                 max_output_tokens=200,
             )
@@ -703,22 +666,18 @@ class AgentSession:
                             self.system_prompt
                             + "\n\nYou MUST respond to the user now in plain text. "
                             "Do NOT call any tools. "
-                            "If triage is incomplete, ask the next 1–3 triage follow-up questions. "
+                            "If triage is incomplete, ask the next 1-3 triage follow-up questions. "
                             "If triage is complete, give routing and next steps."
                         ),
                     }
                 ],
-                tools=tools,
+                tools=toolset,
                 tool_choice="none",
                 max_output_tokens=200,
             )
             agent_reply = forced.output_text or ""
 
-        # Onboarding deterministic hand-off after tool activation
-        if self.onboarding_active and self.onboarding_state:
-            agent_reply = self._prompt_next_onboarding_question()
-
-        clean = self._process_final_reply(agent_reply)
+        clean = self._process_final_reply(user_input, agent_reply)
         self.prompt_suggestions = self._generate_prompt_suggestions(clean)
         return clean
 
@@ -731,7 +690,7 @@ def run_cli():
     while True:
         user_input = input("You: ").strip()
         if user_input.lower() in ["exit", "quit", "stop"]:
-            print("👋 Goodbye! Stay healthy.")
+            print("Bye! Stay healthy.")
             break
         reply = session.step(user_input)
         print("\nAssistant:", reply, "\n")

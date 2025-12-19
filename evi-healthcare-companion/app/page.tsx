@@ -3,11 +3,29 @@
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { MessageCircle, Shield, MapPin, ChevronRight, AlertCircle, RotateCcw } from "lucide-react"
+import { MessageCircle, Shield, MapPin, ChevronRight, AlertCircle, RotateCcw, Save } from "lucide-react"
 
 type ChatMessage = {
   role: "assistant" | "user"
   message: string
+}
+
+type UsefulLink = {
+  title: string
+  url: string
+}
+
+type ProfileDraft = {
+  name: string
+  age_range: string
+  stay_length: string
+  postcode: string
+  visa_status: string
+  gp_registered: string
+  conditions: string
+  medications: string
+  lifestyle_focus: string
+  mental_wellbeing: string
 }
 
 const initialPromptSuggestions = [
@@ -24,32 +42,75 @@ const initialMessages: ChatMessage[] = [
   },
 ]
 
-const onboardingSteps = [
-  { id: 1, label: "Name (optional)", active: true },
-  { id: 2, label: "Age range", active: false },
-  { id: 3, label: "Length of stay", active: false },
-  { id: 4, label: "Postcode", active: false },
-  { id: 5, label: "Visa status", active: false },
-  { id: 6, label: "GP status", active: false },
+const sampleProfile: ProfileDraft = {
+  name: "Sana",
+  age_range: "25-34",
+  stay_length: "1 year (Masters)",
+  postcode: "NW8",
+  visa_status: "Student visa",
+  gp_registered: "Not yet",
+  conditions: "None",
+  medications: "None",
+  lifestyle_focus: "Sleep and stress",
+  mental_wellbeing: "Doing okay, settling in",
+}
+
+const profileFields = [
+  { key: "name", label: "Name", placeholder: "Optional" },
+  { key: "age_range", label: "Age range", placeholder: "e.g., 18-24" },
+  { key: "stay_length", label: "UK stay length", placeholder: "e.g., 9 months" },
+  { key: "postcode", label: "Postcode or area", placeholder: "e.g., NW8 9HU" },
+  { key: "visa_status", label: "Visa or status", placeholder: "e.g., student" },
+  { key: "gp_registered", label: "GP registered?", placeholder: "Yes / No" },
 ]
 
-const triageFlow = [
-  { step: "Severity check", status: "On a scale of 0-10, how severe are your symptoms?" },
-  { step: "Red flags", status: "Any chest pain, breathing issues, or heavy bleeding?" },
-  { step: "Next step", status: "Based on answers, I route you to the right NHS service." },
+const profileTextAreas = [
+  { key: "conditions", label: "Long-term conditions", placeholder: "Optional" },
+  { key: "medications", label: "Medications or treatment", placeholder: "Optional" },
+  { key: "lifestyle_focus", label: "Lifestyle focus", placeholder: "e.g., fitness" },
+  { key: "mental_wellbeing", label: "Mental wellbeing", placeholder: "Optional" },
 ]
 
-const usefulLinks = [
-  { title: "Find a GP", url: "https://www.nhs.uk/service-search/find-a-gp" },
-  { title: "Register with a GP", url: "https://www.nhs.uk/nhs-services/gps/how-to-register-with-a-gp-surgery/" },
-  { title: "Use NHS 111 online", url: "https://111.nhs.uk/" },
-  { title: "NHS services guide", url: "https://www.nhs.uk/using-the-nhs/nhs-services/" },
-  { title: "LBS health and wellbeing", url: "https://www.london.edu/masters-experience/student-support" },
+const exampleResponses = [
   {
-    title: "LBS mental wellbeing support",
-    url: "https://www.london.edu/masters-experience/student-support/mental-health",
+    question: "I just arrived. How do I register with a GP?",
+    response:
+      "You can register with a GP near your London address. Most practices accept online forms. Bring ID and proof of address if asked. I can find nearby practices if you share your full postcode.",
+  },
+  {
+    question: "I feel unwell. What should I do?",
+    response:
+      "I can guide you through an NHS 111 style triage to decide the right service. We will start with a few quick questions about symptoms and urgency.",
   },
 ]
+
+const emptyProfile: ProfileDraft = {
+  name: "",
+  age_range: "",
+  stay_length: "",
+  postcode: "",
+  visa_status: "",
+  gp_registered: "",
+  conditions: "",
+  medications: "",
+  lifestyle_focus: "",
+  mental_wellbeing: "",
+}
+
+const buildProfileDraft = (raw: Record<string, unknown>): ProfileDraft => {
+  return {
+    name: String(raw.name ?? ""),
+    age_range: String(raw.age_range ?? ""),
+    stay_length: String(raw.stay_length ?? ""),
+    postcode: String(raw.postcode ?? ""),
+    visa_status: String(raw.visa_status ?? ""),
+    gp_registered: String(raw.gp_registered ?? ""),
+    conditions: String(raw.conditions ?? ""),
+    medications: String(raw.medications ?? ""),
+    lifestyle_focus: String(raw.lifestyle_focus ?? ""),
+    mental_wellbeing: String(raw.mental_wellbeing ?? ""),
+  }
+}
 
 export default function Home() {
   const [chatInput, setChatInput] = useState("")
@@ -58,6 +119,10 @@ export default function Home() {
   const [promptSuggestions, setPromptSuggestions] = useState(initialPromptSuggestions)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [usefulLinks, setUsefulLinks] = useState<UsefulLink[]>([])
+  const [profileDraft, setProfileDraft] = useState<ProfileDraft>(sampleProfile)
+  const [profileLabel, setProfileLabel] = useState("Sample onboarding profile")
+  const [profileSaveStatus, setProfileSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
 
   const chatSectionRef = useRef<HTMLDivElement>(null)
   const howItWorksRef = useRef<HTMLDivElement>(null)
@@ -85,6 +150,47 @@ export default function Home() {
     setMessages(initialMessages)
     setPromptSuggestions(initialPromptSuggestions)
     setErrorMessage(null)
+    setUsefulLinks([])
+    setProfileDraft(sampleProfile)
+    setProfileLabel("Sample onboarding profile")
+    setProfileSaveStatus("idle")
+  }
+
+  const handleProfileChange = (field: keyof ProfileDraft, value: string) => {
+    setProfileDraft((prev) => ({
+      ...prev,
+      [field]: value,
+    }))
+  }
+
+  const saveProfile = async () => {
+    setProfileSaveStatus("saving")
+    setErrorMessage(null)
+
+    try {
+      const response = await fetch("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          profile: profileDraft,
+        }),
+      })
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        throw new Error(payload?.detail || "Failed to save profile.")
+      }
+
+      const payload = await response.json()
+      setSessionId(payload.session_id)
+      setProfileDraft(buildProfileDraft(payload.user_profile || emptyProfile))
+      setProfileLabel("Saved profile")
+      setProfileSaveStatus("saved")
+    } catch (error) {
+      setProfileSaveStatus("error")
+      setErrorMessage(error instanceof Error ? error.message : "Could not save profile.")
+    }
   }
 
   const sendMessage = async (content: string) => {
@@ -120,6 +226,13 @@ export default function Home() {
       setMessages((prev) => [...prev, { role: "assistant", message: payload.reply }])
       if (Array.isArray(payload.prompt_suggestions) && payload.prompt_suggestions.length > 0) {
         setPromptSuggestions(payload.prompt_suggestions)
+      }
+      if (Array.isArray(payload.useful_links)) {
+        setUsefulLinks(payload.useful_links)
+      }
+      if (payload.user_profile && Object.keys(payload.user_profile).length > 0) {
+        setProfileDraft(buildProfileDraft(payload.user_profile))
+        setProfileLabel("Profile from onboarding")
       }
     } catch (error) {
       const isAbort = error instanceof Error && error.name === "AbortError"
@@ -182,30 +295,6 @@ export default function Home() {
               </Button>
             </div>
           </div>
-        </section>
-
-        <section className="container mx-auto px-4 pb-16">
-          <Card className="max-w-4xl mx-auto bg-sand/95 border-sand/50 p-8 md:p-10 shadow-2xl backdrop-blur-sm animate-fade-in delay-100">
-            <h2 className="font-serif text-3xl font-bold text-navy mb-6">How I can help</h2>
-            <div className="prose prose-lg max-w-none text-navy/90 leading-relaxed">
-              <p className="mb-4">
-                Hi there, welcome to the LBS Community! My name is Evi - Your LBS Healthcare Companion.
-              </p>
-              <p className="mb-4">
-                Now that you have made it to London, I am sure you have a lot of questions about navigating the NHS and
-                LBS wellbeing services.
-              </p>
-              <p className="mb-4">Feel free to start with one of the examples below to get you oriented.</p>
-              <ul className="space-y-2 mb-4">
-                <li>Better understand when and how to use NHS services (GP, NHS 111, A&amp;E, and more!)</li>
-                <li>Locate mental health or wellbeing support</li>
-                <li>Get more information about preventative-care guidance</li>
-              </ul>
-              <p className="text-teal font-semibold">
-                Or, type "onboarding" at any time, and I will ask a few brief questions to get to know you better.
-              </p>
-            </div>
-          </Card>
         </section>
 
         <section className="container mx-auto px-4 pb-16">
@@ -302,53 +391,96 @@ export default function Home() {
 
         <section ref={howItWorksRef} className="container mx-auto px-4 pb-16">
           <div className="max-w-4xl mx-auto">
-            <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">Onboarding preview</h3>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+              <h3 className="font-serif text-2xl font-bold text-sand">How it works</h3>
+              <span className="text-sm text-sand/70">{profileLabel}</span>
+            </div>
             <Card className="bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm">
-              <p className="text-navy/80 mb-6 text-center leading-relaxed">One question at a time, no extra data.</p>
-              <div className="space-y-4">
-                {onboardingSteps.map((step, idx) => (
-                  <div
-                    key={step.id}
-                    className={`flex items-center gap-4 p-4 rounded-lg border-2 transition-all animate-fade-in ${
-                      step.active ? "border-teal bg-teal/10" : "border-navy/20 bg-white/50"
-                    }`}
-                    style={{ animationDelay: `${idx * 80}ms` }}
-                  >
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold ${
-                        step.active ? "bg-teal text-white" : "bg-navy/20 text-navy/60"
-                      }`}
-                    >
-                      {step.id}
-                    </div>
-                    <span className={`font-medium ${step.active ? "text-teal" : "text-navy/60"}`}>{step.label}</span>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div>
+                  <h4 className="font-serif text-xl font-bold text-navy mb-4">Onboarding profile</h4>
+                  <p className="text-navy/70 mb-6">
+                    Edit these details any time. When onboarding finishes, this view updates automatically.
+                  </p>
+                  <div className="space-y-4">
+                    {profileFields.map((field) => (
+                      <div key={field.key}>
+                        <label className="block text-sm font-semibold text-navy mb-2">{field.label}</label>
+                        <input
+                          type="text"
+                          value={profileDraft[field.key as keyof ProfileDraft]}
+                          onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
+                          placeholder={field.placeholder}
+                          className="w-full rounded-lg border border-navy/20 px-4 py-2 text-sm text-navy"
+                        />
+                      </div>
+                    ))}
+                    {profileTextAreas.map((field) => (
+                      <div key={field.key}>
+                        <label className="block text-sm font-semibold text-navy mb-2">{field.label}</label>
+                        <textarea
+                          value={profileDraft[field.key as keyof ProfileDraft]}
+                          onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
+                          placeholder={field.placeholder}
+                          rows={2}
+                          className="w-full rounded-lg border border-navy/20 px-4 py-2 text-sm text-navy"
+                        />
+                      </div>
+                    ))}
                   </div>
-                ))}
+                  <div className="flex flex-wrap items-center gap-3 mt-6">
+                    <Button onClick={saveProfile} className="bg-teal hover:bg-teal/90 text-white">
+                      <Save className="mr-2 h-4 w-4" />
+                      {profileSaveStatus === "saving" ? "Saving..." : "Save profile"}
+                    </Button>
+                    {profileSaveStatus === "saved" && (
+                      <span className="text-sm text-teal">Saved to this session.</span>
+                    )}
+                    {profileSaveStatus === "error" && (
+                      <span className="text-sm text-coral">Could not save profile.</span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <h4 className="font-serif text-xl font-bold text-navy mb-4">Example responses</h4>
+                  <div className="space-y-4">
+                    {exampleResponses.map((item, idx) => (
+                      <div key={idx} className="rounded-lg border border-navy/15 bg-white/70 p-4">
+                        <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Student</p>
+                        <p className="text-navy font-medium mb-3">{item.question}</p>
+                        <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Evi</p>
+                        <p className="text-navy/80 text-sm leading-relaxed">{item.response}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </Card>
           </div>
         </section>
 
         <section className="container mx-auto px-4 pb-16">
-          <div className="max-w-4xl mx-auto">
-            <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">Triage preview</h3>
-            <Card className="bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm">
-              <div className="space-y-6">
-                {triageFlow.map((item, idx) => (
-                  <div key={idx} className="animate-fade-in" style={{ animationDelay: `${idx * 100}ms` }}>
-                    <div className="flex items-start gap-4">
-                      <div className="w-2 h-2 bg-teal rounded-full mt-2"></div>
-                      <div className="flex-1">
-                        <h4 className="font-semibold text-navy mb-1">{item.step}</h4>
-                        <p className="text-navy/70 leading-relaxed">{item.status}</p>
-                      </div>
-                    </div>
-                    {idx < triageFlow.length - 1 && <div className="ml-1 h-8 w-0.5 bg-teal/30 mt-2"></div>}
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
+          <Card className="max-w-4xl mx-auto bg-sand/95 border-sand/50 p-8 md:p-10 shadow-2xl backdrop-blur-sm animate-fade-in delay-100">
+            <h2 className="font-serif text-3xl font-bold text-navy mb-6">How I can help</h2>
+            <div className="prose prose-lg max-w-none text-navy/90 leading-relaxed">
+              <p className="mb-4">
+                Hi there, welcome to the LBS Community! My name is Evi - Your LBS Healthcare Companion.
+              </p>
+              <p className="mb-4">
+                Now that you have made it to London, I am sure you have a lot of questions about navigating the NHS and
+                LBS wellbeing services.
+              </p>
+              <p className="mb-4">Feel free to start with one of the examples below to get you oriented.</p>
+              <ul className="space-y-2 mb-4">
+                <li>Better understand when and how to use NHS services (GP, NHS 111, A&amp;E, and more!)</li>
+                <li>Locate mental health or wellbeing support</li>
+                <li>Get more information about preventative-care guidance</li>
+              </ul>
+              <p className="text-teal font-semibold">
+                Or, type "onboarding" at any time, and I will ask a few brief questions to get to know you better.
+              </p>
+            </div>
+          </Card>
         </section>
 
         <section className="container mx-auto px-4 pb-16">
@@ -371,22 +503,28 @@ export default function Home() {
           <div className="max-w-4xl mx-auto">
             <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">Useful links</h3>
             <Card className="bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {usefulLinks.map((link, idx) => (
-                  <a
-                    key={idx}
-                    href={link.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-3 p-4 rounded-lg border-2 border-navy/20 hover:border-teal hover:bg-teal/5 transition-all group animate-fade-in"
-                    style={{ animationDelay: `${idx * 60}ms` }}
-                  >
-                    <MapPin className="h-5 w-5 text-teal flex-shrink-0" />
-                    <span className="text-navy font-medium group-hover:text-teal transition-colors">{link.title}</span>
-                    <ChevronRight className="h-4 w-4 text-navy/40 ml-auto group-hover:text-teal transition-colors" />
-                  </a>
-                ))}
-              </div>
+              {usefulLinks.length === 0 ? (
+                <p className="text-navy/70 text-center">
+                  Ask a question to see tailored NHS and LBS links here.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {usefulLinks.map((link, idx) => (
+                    <a
+                      key={idx}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 p-4 rounded-lg border-2 border-navy/20 hover:border-teal hover:bg-teal/5 transition-all group animate-fade-in"
+                      style={{ animationDelay: `${idx * 60}ms` }}
+                    >
+                      <MapPin className="h-5 w-5 text-teal flex-shrink-0" />
+                      <span className="text-navy font-medium group-hover:text-teal transition-colors">{link.title}</span>
+                      <ChevronRight className="h-4 w-4 text-navy/40 ml-auto group-hover:text-teal transition-colors" />
+                    </a>
+                  ))}
+                </div>
+              )}
             </Card>
           </div>
         </section>

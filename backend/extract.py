@@ -1,15 +1,19 @@
-import re
 import json
+import re
+from typing import Any, Dict, Optional
 
 
-def extract_profile(text):
+PROFILE_TAG_RE = re.compile(r"<USER_PROFILE>.*?</USER_PROFILE>", re.DOTALL)
+
+
+def extract_profile(text: str) -> Optional[Dict[str, Any]]:
     m = re.search(r"<USER_PROFILE>(.*?)</USER_PROFILE>", text, re.DOTALL)
     if not m:
         return None
 
     raw = m.group(1)
     if not raw:
-        return None  # avoid IndexError
+        return None
 
     raw = raw.strip()
     try:
@@ -20,6 +24,3 @@ def extract_profile(text):
 
 def strip_profile_tag(text: str) -> str:
     return PROFILE_TAG_RE.sub("", text).strip()
-
-
-PROFILE_TAG_RE = re.compile(r"<USER_PROFILE>.*?</USER_PROFILE>", re.DOTALL)

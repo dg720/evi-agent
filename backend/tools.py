@@ -7,6 +7,7 @@ from urllib.parse import quote_plus
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from config import ONBOARDING_QUESTIONS
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -22,22 +23,7 @@ def tool_onboarding(_args=None):
     """
     return {
         "mode": "llm_multiturn_onboarding",
-        "questions": [
-            # --- CONTEXT ---
-            {"key": "name", "question": "What's your name? (optional - you can say 'skip')", "optional": True},
-            {"key": "age_range", "question": "What's your age range?", "optional": False},
-            {"key": "stay_length", "question": "How long will you stay in the UK?", "optional": False},
-            {"key": "postcode", "question": "What's your London postcode / area?", "optional": False},
-            {"key": "visa_status", "question": "Do you hold a UK visa/status (e.g., student, work, settled, visitor)?", "optional": False},
-            {"key": "gp_registered", "question": "Do you already have a registered GP in the UK?", "optional": False},
-            {"key": "conditions", "question": "Any long-term health conditions you'd like me to be aware of? (optional - say 'skip')", "optional": True},
-            # --- MEDICAL ---
-            {"key": "medications", "question": "Do you take any regular medications or receive ongoing treatment? (optional - say 'skip')", "optional": True},
-            # --- LIFESTYLE ---
-            {"key": "lifestyle_focus", "question": "Is there any lifestyle area you want to improve while in the UK?", "optional": False},
-            # --- MENTAL HEALTH ---
-            {"key": "mental_wellbeing", "question": "How has your mental wellbeing been recently? (optional - say 'skip')", "optional": True},
-        ],
+        "questions": ONBOARDING_QUESTIONS,
         "instructions_to_llm": """
 You (the assistant) must run onboarding as a strict multi-turn Q&A.
 
@@ -359,14 +345,6 @@ tools = [
             "properties": {"message": {"type": "string"}},
             "required": ["message"],
         },
-    },
-    {
-        "type": "function",
-        "name": "onboarding",
-        "description": (
-            "Collect or refresh the user's profile so guidance can be personalised."
-        ),
-        "parameters": {"type": "object", "properties": {}, "required": []},
     },
     {
         "type": "function",
