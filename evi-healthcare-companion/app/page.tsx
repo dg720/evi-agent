@@ -117,6 +117,15 @@ const buildProfileDraft = (raw: Record<string, unknown>): ProfileDraft => {
   }
 }
 
+const formatMessage = (text: string) => {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+  const bolded = escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+  return { __html: bolded.replace(/\n/g, "<br />") }
+}
+
 export default function Home() {
   const [chatInput, setChatInput] = useState("")
   const [isThinking, setIsThinking] = useState(false)
@@ -128,6 +137,7 @@ export default function Home() {
   const [profileLabel, setProfileLabel] = useState("Sample onboarding profile")
   const [profileSaveStatus, setProfileSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
   const [roadmapIndex, setRoadmapIndex] = useState(0)
+  const [completedSteps, setCompletedSteps] = useState<number[]>([])
 
   const chatSectionRef = useRef<HTMLDivElement>(null)
   const howItWorksRef = useRef<HTMLDivElement>(null)
@@ -142,6 +152,12 @@ export default function Home() {
       behavior: "smooth",
     })
   }, [messages, isThinking])
+
+  useEffect(() => {
+    if (profileLabel !== "Sample onboarding profile" && !completedSteps.includes(0)) {
+      setCompletedSteps((prev) => [...prev, 0])
+    }
+  }, [profileLabel, completedSteps])
 
   const focusChat = () => {
     chatSectionRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -161,6 +177,7 @@ export default function Home() {
     setProfileLabel("Sample onboarding profile")
     setProfileSaveStatus("idle")
     setRoadmapIndex(0)
+    setCompletedSteps([])
   }
 
   const handleProfileChange = (field: keyof ProfileDraft, value: string) => {
@@ -194,13 +211,14 @@ export default function Home() {
       setProfileDraft(buildProfileDraft(payload.user_profile || emptyProfile))
       setProfileLabel("Saved profile")
       setProfileSaveStatus("saved")
+      setCompletedSteps((prev) => (prev.includes(0) ? prev : [...prev, 0]))
     } catch (error) {
       setProfileSaveStatus("error")
       setErrorMessage(error instanceof Error ? error.message : "Could not save profile.")
     }
   }
 
-  const sendMessage = async (content: string) => {
+  const sendMessage = async (content: string, stepIndex?: number) => {
     const trimmed = content.trim()
     if (!trimmed || isThinking) return
 
@@ -237,6 +255,13 @@ export default function Home() {
       if (payload.user_profile && Object.keys(payload.user_profile).length > 0) {
         setProfileDraft(buildProfileDraft(payload.user_profile))
         setProfileLabel("Profile from onboarding")
+        setCompletedSteps((prev) => (prev.includes(0) ? prev : [...prev, 0]))
+      }
+      if (typeof stepIndex === "number") {
+        setCompletedSteps((prev) => (prev.includes(stepIndex) ? prev : [...prev, stepIndex]))
+        if (stepIndex >= roadmapIndex) {
+          setRoadmapIndex(stepIndex + 1)
+        }
       }
     } catch (error) {
       const isAbort = error instanceof Error && error.name === "AbortError"
@@ -306,24 +331,28 @@ export default function Home() {
             <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">Quick start roadmap</h3>
             <div className="space-y-3">
               {roadmapSteps.map((step, idx) => {
-                const status = idx < roadmapIndex ? "Done" : idx === roadmapIndex ? "In progress" : "Next"
+                const isCompleted = completedSteps.includes(idx)
+                const isActive = idx === roadmapIndex
+                const status = isCompleted ? "Done" : isActive ? "In progress" : "Next"
                 return (
                   <button
                     key={step.label}
                     className={`w-full text-left rounded-xl border-2 px-5 py-4 transition-all ${
-                      idx === roadmapIndex
+                      isActive
                         ? "border-teal bg-teal/10 text-sand"
                         : "border-sand/20 bg-sand/5 text-sand/80 hover:border-sand/40"
-                    }`}
+                    } ${isCompleted ? "opacity-70" : ""}`}
                     onClick={() => {
+                      if (isCompleted) return
                       setRoadmapIndex(idx)
-                      sendMessage(step.prompt)
+                      sendMessage(step.prompt, idx)
                     }}
+                    disabled={isCompleted || isThinking}
                   >
                     <div className="flex items-center gap-4">
                       <div
                         className={`h-9 w-9 rounded-full flex items-center justify-center font-semibold ${
-                          idx <= roadmapIndex ? "bg-teal text-white" : "bg-sand/20 text-sand"
+                          isCompleted || isActive ? "bg-teal text-white" : "bg-sand/20 text-sand"
                         }`}
                       >
                         {idx + 1}
@@ -376,7 +405,10 @@ export default function Home() {
                           : "bg-navy/10 text-navy border border-navy/20"
                       }`}
                     >
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{exchange.message}</p>
+                      <p
+                        className="text-sm leading-relaxed whitespace-pre-wrap"
+                        dangerouslySetInnerHTML={formatMessage(exchange.message)}
+                      ></p>
                     </div>
                   </div>
                 ))}

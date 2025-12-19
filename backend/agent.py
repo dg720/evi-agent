@@ -92,6 +92,11 @@ class AgentSession:
 
     def set_user_profile(self, profile: Dict[str, Any]) -> None:
         """Set the profile from the UI and rebuild system prompt."""
+        postcode_full, postcode_area = self._derive_postcode_fields(str(profile.get("postcode") or ""))
+        if postcode_full:
+            profile["postcode_full"] = postcode_full
+        if postcode_area:
+            profile["postcode_area"] = postcode_area
         self.user_profile = profile
         self.system_prompt = build_system_prompt(self.user_profile)
         self.conversation_history.append(
