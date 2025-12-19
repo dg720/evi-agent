@@ -306,45 +306,26 @@ class AgentSession:
 
         return selected[:4]
 
-    def _inject_useful_links(self, agent_reply: str, links: List[Dict[str, str]]) -> str:
-        if not links:
-            return agent_reply
-
-        stripped = agent_reply.strip()
-        if stripped.startswith("<USER_PROFILE>") and stripped.endswith("</USER_PROFILE>"):
-            return agent_reply
-
-        new_section = ["Useful links", *[f"- {link['title']}: {link['url']}" for link in links]]
-
+    def _strip_useful_links(self, agent_reply: str) -> str:
         lines = agent_reply.splitlines()
         rebuilt = []
         idx = 0
-        replaced = False
         while idx < len(lines):
             line = lines[idx]
-            if not replaced and line.strip().lower().startswith("useful links"):
+            if line.strip().lower().startswith("useful links"):
                 idx += 1
                 while idx < len(lines) and lines[idx].strip() != "":
                     idx += 1
-                rebuilt.extend(new_section)
-                replaced = True
                 continue
             rebuilt.append(line)
             idx += 1
-
-        if not replaced:
-            rebuilt.append("")
-            rebuilt.extend(new_section)
-
-        return "\n".join(rebuilt)
+        return "\n".join(rebuilt).strip()
 
     def _process_final_reply(self, user_input: str, agent_reply: str) -> str:
         useful_links = self._select_useful_links(user_input, agent_reply)
-        if useful_links:
-            agent_reply = self._inject_useful_links(agent_reply, useful_links)
         self.last_useful_links = useful_links
 
-        clean_reply = strip_profile_tag(agent_reply)
+        clean_reply = self._strip_useful_links(strip_profile_tag(agent_reply))
         self.conversation_history.append({"role": "assistant", "content": clean_reply})
 
         maybe_profile = extract_profile(agent_reply)

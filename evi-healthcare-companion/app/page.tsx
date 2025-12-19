@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { MessageCircle, Shield, MapPin, ChevronRight, AlertCircle, RotateCcw, Save } from "lucide-react"
@@ -28,18 +28,23 @@ type ProfileDraft = {
   mental_wellbeing: string
 }
 
-const initialPromptSuggestions = [
-  "Build my onboarding profile",
-  "Start triage process",
-  "How do I register with a GP?",
-  "What NHS services am I eligible for?",
-]
+type RoadmapStep = {
+  label: string
+  prompt: string
+}
 
 const initialMessages: ChatMessage[] = [
   {
     role: "assistant",
     message: "Hi! I can help you navigate NHS services. What would you like to know?",
   },
+]
+
+const roadmapDefaults: RoadmapStep[] = [
+  { label: "Build your onboarding profile", prompt: "Build my onboarding profile" },
+  { label: "Check NHS eligibility", prompt: "What NHS services am I eligible for?" },
+  { label: "Register with a GP", prompt: "How do I register with a GP?" },
+  { label: "Start symptom triage", prompt: "Start triage process" },
 ]
 
 const sampleProfile: ProfileDraft = {
@@ -116,18 +121,20 @@ export default function Home() {
   const [chatInput, setChatInput] = useState("")
   const [isThinking, setIsThinking] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
-  const [promptSuggestions, setPromptSuggestions] = useState(initialPromptSuggestions)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [usefulLinks, setUsefulLinks] = useState<UsefulLink[]>([])
   const [profileDraft, setProfileDraft] = useState<ProfileDraft>(sampleProfile)
   const [profileLabel, setProfileLabel] = useState("Sample onboarding profile")
   const [profileSaveStatus, setProfileSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
+  const [roadmapIndex, setRoadmapIndex] = useState(0)
 
   const chatSectionRef = useRef<HTMLDivElement>(null)
   const howItWorksRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
+
+  const roadmapSteps = useMemo(() => roadmapDefaults, [])
 
   useEffect(() => {
     chatScrollRef.current?.scrollTo({
@@ -148,12 +155,12 @@ export default function Home() {
   const resetChat = () => {
     setSessionId(null)
     setMessages(initialMessages)
-    setPromptSuggestions(initialPromptSuggestions)
     setErrorMessage(null)
     setUsefulLinks([])
     setProfileDraft(sampleProfile)
     setProfileLabel("Sample onboarding profile")
     setProfileSaveStatus("idle")
+    setRoadmapIndex(0)
   }
 
   const handleProfileChange = (field: keyof ProfileDraft, value: string) => {
@@ -224,9 +231,6 @@ export default function Home() {
       const payload = await response.json()
       setSessionId(payload.session_id)
       setMessages((prev) => [...prev, { role: "assistant", message: payload.reply }])
-      if (Array.isArray(payload.prompt_suggestions) && payload.prompt_suggestions.length > 0) {
-        setPromptSuggestions(payload.prompt_suggestions)
-      }
       if (Array.isArray(payload.useful_links)) {
         setUsefulLinks(payload.useful_links)
       }
@@ -262,7 +266,7 @@ export default function Home() {
       </div>
 
       <div className="relative">
-        <section className="container mx-auto px-4 pt-16 pb-20 md:pt-24 md:pb-32">
+        <section className="container mx-auto px-4 pt-16 pb-16 md:pt-24 md:pb-20">
           <div className="max-w-4xl mx-auto text-center animate-fade-in">
             <div className="inline-flex items-center gap-2 bg-sand/10 border border-sand/30 rounded-full px-4 py-2 mb-6">
               <span className="text-sand text-sm font-medium">Built for LBS students</span>
@@ -298,26 +302,46 @@ export default function Home() {
         </section>
 
         <section className="container mx-auto px-4 pb-16">
-          <div className="max-w-4xl mx-auto">
-            <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">Quick start prompts</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {promptSuggestions.map((prompt, idx) => (
-                <Button
-                  key={idx}
-                  variant="outline"
-                  className="border-sand/30 text-sand hover:bg-sand/10 hover:border-sand/50 justify-start text-left h-auto py-4 px-6 animate-fade-in bg-transparent"
-                  style={{ animationDelay: `${idx * 100 + 200}ms` }}
-                  onClick={() => sendMessage(prompt)}
-                >
-                  <ChevronRight className="mr-2 h-4 w-4 flex-shrink-0 text-teal" />
-                  <span className="text-base">{prompt}</span>
-                </Button>
-              ))}
+          <div className="max-w-3xl mx-auto">
+            <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">Quick start roadmap</h3>
+            <div className="space-y-3">
+              {roadmapSteps.map((step, idx) => {
+                const status = idx < roadmapIndex ? "Done" : idx === roadmapIndex ? "In progress" : "Next"
+                return (
+                  <button
+                    key={step.label}
+                    className={`w-full text-left rounded-xl border-2 px-5 py-4 transition-all ${
+                      idx === roadmapIndex
+                        ? "border-teal bg-teal/10 text-sand"
+                        : "border-sand/20 bg-sand/5 text-sand/80 hover:border-sand/40"
+                    }`}
+                    onClick={() => {
+                      setRoadmapIndex(idx)
+                      sendMessage(step.prompt)
+                    }}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div
+                        className={`h-9 w-9 rounded-full flex items-center justify-center font-semibold ${
+                          idx <= roadmapIndex ? "bg-teal text-white" : "bg-sand/20 text-sand"
+                        }`}
+                      >
+                        {idx + 1}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-base font-semibold">{step.label}</p>
+                        <p className="text-xs uppercase tracking-wide text-sand/60 mt-1">{status}</p>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-teal" />
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           </div>
         </section>
 
-        <section ref={chatSectionRef} className="container mx-auto px-4 pb-16">
+        <section ref={chatSectionRef} className="container mx-auto px-4 pb-12">
           <div className="max-w-4xl mx-auto">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
               <h3 className="font-serif text-2xl font-bold text-sand text-center sm:text-left">Live chat</h3>
@@ -389,71 +413,122 @@ export default function Home() {
           </div>
         </section>
 
+        <section className="container mx-auto px-4 pb-16">
+          <div className="max-w-4xl mx-auto">
+            <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">Useful links</h3>
+            <Card className="bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm">
+              {usefulLinks.length === 0 ? (
+                <p className="text-navy/70 text-center">
+                  Ask a question to see tailored NHS and LBS links here.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {usefulLinks.map((link, idx) => (
+                    <a
+                      key={idx}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 p-4 rounded-lg border-2 border-navy/20 hover:border-teal hover:bg-teal/5 transition-all group animate-fade-in"
+                      style={{ animationDelay: `${idx * 60}ms` }}
+                    >
+                      <MapPin className="h-5 w-5 text-teal flex-shrink-0" />
+                      <span className="text-navy font-medium group-hover:text-teal transition-colors">{link.title}</span>
+                      <ChevronRight className="h-4 w-4 text-navy/40 ml-auto group-hover:text-teal transition-colors" />
+                    </a>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </div>
+        </section>
+
         <section ref={howItWorksRef} className="container mx-auto px-4 pb-16">
           <div className="max-w-4xl mx-auto">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
               <h3 className="font-serif text-2xl font-bold text-sand">How it works</h3>
               <span className="text-sm text-sand/70">{profileLabel}</span>
             </div>
-            <Card className="bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <Card className="bg-sand/95 border-sand/50 p-6 md:p-8 shadow-2xl backdrop-blur-sm">
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h4 className="font-serif text-xl font-bold text-navy mb-4">Onboarding profile</h4>
-                  <p className="text-navy/70 mb-6">
+                  <h4 className="font-serif text-xl font-bold text-navy">Onboarding profile</h4>
+                  <p className="text-navy/70 mt-2">
                     Edit these details any time. When onboarding finishes, this view updates automatically.
                   </p>
-                  <div className="space-y-4">
-                    {profileFields.map((field) => (
-                      <div key={field.key}>
-                        <label className="block text-sm font-semibold text-navy mb-2">{field.label}</label>
-                        <input
-                          type="text"
-                          value={profileDraft[field.key as keyof ProfileDraft]}
-                          onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
-                          placeholder={field.placeholder}
-                          className="w-full rounded-lg border border-navy/20 px-4 py-2 text-sm text-navy"
-                        />
-                      </div>
-                    ))}
-                    {profileTextAreas.map((field) => (
-                      <div key={field.key}>
-                        <label className="block text-sm font-semibold text-navy mb-2">{field.label}</label>
-                        <textarea
-                          value={profileDraft[field.key as keyof ProfileDraft]}
-                          onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
-                          placeholder={field.placeholder}
-                          rows={2}
-                          className="w-full rounded-lg border border-navy/20 px-4 py-2 text-sm text-navy"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3 mt-6">
-                    <Button onClick={saveProfile} className="bg-teal hover:bg-teal/90 text-white">
-                      <Save className="mr-2 h-4 w-4" />
-                      {profileSaveStatus === "saving" ? "Saving..." : "Save profile"}
-                    </Button>
-                    {profileSaveStatus === "saved" && (
-                      <span className="text-sm text-teal">Saved to this session.</span>
-                    )}
-                    {profileSaveStatus === "error" && (
-                      <span className="text-sm text-coral">Could not save profile.</span>
-                    )}
-                  </div>
                 </div>
-                <div>
-                  <h4 className="font-serif text-xl font-bold text-navy mb-4">Example responses</h4>
-                  <div className="space-y-4">
-                    {exampleResponses.map((item, idx) => (
-                      <div key={idx} className="rounded-lg border border-navy/15 bg-white/70 p-4">
-                        <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Student</p>
-                        <p className="text-navy font-medium mb-3">{item.question}</p>
-                        <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Evi</p>
-                        <p className="text-navy/80 text-sm leading-relaxed">{item.response}</p>
-                      </div>
-                    ))}
-                  </div>
+                <div className="text-xs uppercase tracking-wide text-navy/50">Editable</div>
+              </div>
+
+              <details className="mt-6 group" open>
+                <summary className="cursor-pointer text-sm font-semibold text-teal">
+                  Profile details
+                </summary>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {profileFields.map((field) => (
+                    <div key={field.key}>
+                      <label className="block text-xs font-semibold text-navy/70 mb-2">{field.label}</label>
+                      <input
+                        type="text"
+                        value={profileDraft[field.key as keyof ProfileDraft]}
+                        onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
+                        placeholder={field.placeholder}
+                        className="w-full rounded-lg border border-navy/20 px-3 py-2 text-sm text-navy"
+                      />
+                    </div>
+                  ))}
                 </div>
+              </details>
+
+              <details className="mt-5">
+                <summary className="cursor-pointer text-sm font-semibold text-teal">
+                  Additional context
+                </summary>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {profileTextAreas.map((field) => (
+                    <div key={field.key}>
+                      <label className="block text-xs font-semibold text-navy/70 mb-2">{field.label}</label>
+                      <textarea
+                        value={profileDraft[field.key as keyof ProfileDraft]}
+                        onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
+                        placeholder={field.placeholder}
+                        rows={2}
+                        className="w-full rounded-lg border border-navy/20 px-3 py-2 text-sm text-navy"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </details>
+
+              <div className="flex flex-wrap items-center gap-3 mt-6">
+                <Button onClick={saveProfile} className="bg-teal hover:bg-teal/90 text-white">
+                  <Save className="mr-2 h-4 w-4" />
+                  {profileSaveStatus === "saving" ? "Saving..." : "Save profile"}
+                </Button>
+                {profileSaveStatus === "saved" && (
+                  <span className="text-sm text-teal">Saved to this session.</span>
+                )}
+                {profileSaveStatus === "error" && (
+                  <span className="text-sm text-coral">Could not save profile.</span>
+                )}
+              </div>
+            </Card>
+          </div>
+        </section>
+
+        <section className="container mx-auto px-4 pb-16">
+          <div className="max-w-4xl mx-auto">
+            <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">Example responses</h3>
+            <Card className="bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm">
+              <div className="space-y-4">
+                {exampleResponses.map((item, idx) => (
+                  <div key={idx} className="rounded-lg border border-navy/15 bg-white/70 p-4">
+                    <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Student</p>
+                    <p className="text-navy font-medium mb-3">{item.question}</p>
+                    <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Evi</p>
+                    <p className="text-navy/80 text-sm leading-relaxed">{item.response}</p>
+                  </div>
+                ))}
               </div>
             </Card>
           </div>
@@ -495,36 +570,6 @@ export default function Home() {
                   </p>
                 </div>
               </div>
-            </Card>
-          </div>
-        </section>
-
-        <section className="container mx-auto px-4 pb-16">
-          <div className="max-w-4xl mx-auto">
-            <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">Useful links</h3>
-            <Card className="bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm">
-              {usefulLinks.length === 0 ? (
-                <p className="text-navy/70 text-center">
-                  Ask a question to see tailored NHS and LBS links here.
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {usefulLinks.map((link, idx) => (
-                    <a
-                      key={idx}
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-3 p-4 rounded-lg border-2 border-navy/20 hover:border-teal hover:bg-teal/5 transition-all group animate-fade-in"
-                      style={{ animationDelay: `${idx * 60}ms` }}
-                    >
-                      <MapPin className="h-5 w-5 text-teal flex-shrink-0" />
-                      <span className="text-navy font-medium group-hover:text-teal transition-colors">{link.title}</span>
-                      <ChevronRight className="h-4 w-4 text-navy/40 ml-auto group-hover:text-teal transition-colors" />
-                    </a>
-                  ))}
-                </div>
-              )}
             </Card>
           </div>
         </section>
