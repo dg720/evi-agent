@@ -1,9 +1,25 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { MessageCircle, Shield, MapPin, ChevronRight, AlertCircle, RotateCcw, Save } from "lucide-react"
+import {
+  MessageCircle,
+  Shield,
+  MapPin,
+  ChevronRight,
+  AlertCircle,
+  RotateCcw,
+  Save,
+  History,
+  Download,
+  BookOpen,
+  CheckCircle2,
+  Lock,
+  Search,
+} from "lucide-react"
+import { knowledgeBase, type KnowledgeArticle } from "@/lib/knowledge-base"
 
 type ChatMessage = {
   role: "assistant" | "user"
@@ -29,8 +45,25 @@ type ProfileDraft = {
 }
 
 type RoadmapStep = {
+  key: string
   label: string
   prompt: string
+}
+
+type RoadmapStatus = "locked" | "available" | "completed"
+
+type ChatSession = {
+  id: string
+  sessionId: string | null
+  title: string
+  createdAt: string
+  updatedAt: string
+  messages: ChatMessage[]
+  tags: string[]
+  profileSnapshot: ProfileDraft
+  usefulLinks: UsefulLink[]
+  completedSteps: number[]
+  activeStepIndex: number
 }
 
 const initialMessages: ChatMessage[] = [
@@ -41,24 +74,14 @@ const initialMessages: ChatMessage[] = [
 ]
 
 const roadmapDefaults: RoadmapStep[] = [
-  { label: "Build your onboarding profile", prompt: "Build my onboarding profile" },
-  { label: "Check NHS eligibility", prompt: "What NHS services am I eligible for?" },
-  { label: "Register with a GP", prompt: "How do I register with a GP?" },
-  { label: "Start symptom triage", prompt: "Start triage process" },
+  { key: "profile", label: "Build your profile", prompt: "Start onboarding" },
+  { key: "eligibility", label: "Check NHS eligibility", prompt: "What NHS services am I eligible for?" },
+  { key: "gp-register", label: "Register with a GP", prompt: "How do I register with a GP?" },
+  { key: "care-options", label: "Understand care options", prompt: "Explain GP vs pharmacy vs NHS 111 vs A&E." },
+  { key: "urgent-emergency", label: "Know urgent vs emergency care", prompt: "When should I use NHS 111 vs A&E?" },
 ]
 
-const sampleProfile: ProfileDraft = {
-  name: "Sana",
-  age_range: "25-34",
-  stay_length: "1 year (Masters)",
-  postcode: "NW8",
-  visa_status: "Student visa",
-  gp_registered: "Not yet",
-  conditions: "None",
-  medications: "None",
-  lifestyle_focus: "Sleep and stress",
-  mental_wellbeing: "Doing okay, settling in",
-}
+const SESSION_STORAGE_KEY = "evi_chat_sessions_v1"
 
 const profileFields = [
   { key: "name", label: "Name", placeholder: "Optional" },
@@ -126,6 +149,130 @@ const formatMessage = (text: string) => {
   return { __html: bolded.replace(/\n/g, "<br />") }
 }
 
+const createSessionId = () => {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+const formatTimestamp = (iso: string) => {
+  const date = new Date(iso)
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+const buildSessionTitle = (messages: ChatMessage[]) => {
+  const firstUser = messages.find((msg) => msg.role === "user")
+  if (!firstUser) return "New conversation"
+  return firstUser.message.slice(0, 48)
+}
+
+const deriveTags = (messages: ChatMessage[]) => {
+  const text = messages.map((msg) => msg.message).join(" ").toLowerCase()
+  const tags: string[] = []
+  const rules: Array<[string, string[]]> = [
+    ["gp", ["gp", "general practitioner", "register"]],
+    ["111", ["111", "triage", "urgent"]],
+    ["a&e", ["a&e", "a and e", "emergency"]],
+    ["pharmacy", ["pharmacy", "pharmacist", "self-care"]],
+    ["eligibility", ["eligible", "eligibility", "visa", "status"]],
+    ["mental", ["mental", "wellbeing", "anxiety", "stress"]],
+    ["prescriptions", ["prescription", "cost", "charges"]],
+  ]
+  rules.forEach(([tag, keywords]) => {
+    if (keywords.some((keyword) => text.includes(keyword))) {
+      tags.push(tag)
+    }
+  })
+  return Array.from(new Set(tags))
+}
+
+const inferCompletedSteps = (messages: ChatMessage[], profile: ProfileDraft | null) => {
+  const completed: number[] = []
+  const text = messages.map((msg) => msg.message).join(" ").toLowerCase()
+  const hasProfile =
+    !!profile &&
+    ["age_range", "stay_length", "postcode", "visa_status", "gp_registered"].every(
+      (key) => String(profile[key as keyof ProfileDraft] || "").trim().length > 0
+    )
+
+  if (hasProfile) completed.push(0)
+  if (text.includes("eligible") || text.includes("eligibility")) completed.push(1)
+  if (text.includes("register") && text.includes("gp")) completed.push(2)
+  if (text.includes("pharmacy") || text.includes("111") || text.includes("a&e")) completed.push(3)
+  if (text.includes("urgent") && text.includes("emergency")) completed.push(4)
+  return Array.from(new Set(completed))
+}
+
+const roadmapStatusForIndex = (index: number, completedSteps: number[]): RoadmapStatus => {
+  if (completedSteps.includes(index)) return "completed"
+  if (index === 0) return "available"
+  if (completedSteps.includes(index - 1)) return "available"
+  return "locked"
+}
+
+const buildExportText = (session: ChatSession) => {
+  const profileLines = Object.entries(session.profileSnapshot || {})
+    .map(([key, value]) => `${key}: ${value || "Not provided"}`)
+    .join("\n")
+  const header = [
+    "Evi conversation export",
+    "Disclaimer: Evi is informational only and not for emergencies.",
+    `Created: ${session.createdAt}`,
+    `Tags: ${session.tags.join(", ") || "None"}`,
+    "Profile snapshot:",
+    profileLines || "No profile saved",
+    "",
+  ].join("\n")
+
+  const body = session.messages
+    .map((msg) => `${msg.role === "user" ? "You" : "Evi"}: ${msg.message}`)
+    .join("\n\n")
+  return `${header}${body}`
+}
+
+const buildExportMarkdown = (session: ChatSession) => {
+  const profileLines = Object.entries(session.profileSnapshot || {})
+    .map(([key, value]) => `- ${key}: ${value || "Not provided"}`)
+    .join("\n")
+  const header = [
+    "# Evi conversation export",
+    "",
+    "_Disclaimer: Evi is informational only and not for emergencies._",
+    "",
+    `- Created: ${session.createdAt}`,
+    `- Tags: ${session.tags.join(", ") || "None"}`,
+    "",
+    "## Profile snapshot",
+    profileLines || "- No profile saved",
+    "",
+  ].join("\n")
+
+  const body = session.messages
+    .map((msg) => `**${msg.role === "user" ? "You" : "Evi"}:** ${msg.message}`)
+    .join("\n\n")
+  return `${header}${body}`
+}
+
+const relatedArticlesForTags = (tags: string[]) => {
+  const map: Record<string, string[]> = {
+    gp: ["gp-registration"],
+    "111": ["care-options"],
+    "a&e": ["care-options"],
+    pharmacy: ["care-options"],
+    eligibility: ["nhs-overview", "prescriptions-costs"],
+    mental: ["mental-health"],
+    prescriptions: ["prescriptions-costs"],
+  }
+  const ids = tags.flatMap((tag) => map[tag] || [])
+  return knowledgeBase.filter((article) => ids.includes(article.id))
+}
+
 export default function Home() {
   const [chatInput, setChatInput] = useState("")
   const [isThinking, setIsThinking] = useState(false)
@@ -133,18 +280,63 @@ export default function Home() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [usefulLinks, setUsefulLinks] = useState<UsefulLink[]>([])
-  const [profileDraft, setProfileDraft] = useState<ProfileDraft>(sampleProfile)
-  const [profileLabel, setProfileLabel] = useState("Sample onboarding profile")
+  const [profileDraft, setProfileDraft] = useState<ProfileDraft>(emptyProfile)
+  const [savedProfile, setSavedProfile] = useState<ProfileDraft | null>(null)
+  const [profileLabel, setProfileLabel] = useState("No saved profile yet")
   const [profileSaveStatus, setProfileSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
-  const [roadmapIndex, setRoadmapIndex] = useState(0)
+  const [activeStepIndex, setActiveStepIndex] = useState(0)
   const [completedSteps, setCompletedSteps] = useState<number[]>([])
+  const [quickReplies, setQuickReplies] = useState<string[]>([])
+  const [sessions, setSessions] = useState<ChatSession[]>([])
+  const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
+  const [knowledgeSearch, setKnowledgeSearch] = useState("")
+  const [selectedArticle, setSelectedArticle] = useState<KnowledgeArticle | null>(null)
 
   const chatSectionRef = useRef<HTMLDivElement>(null)
   const howItWorksRef = useRef<HTMLDivElement>(null)
+  const knowledgeRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
 
   const roadmapSteps = useMemo(() => roadmapDefaults, [])
+
+  const createNewSession = (): ChatSession => {
+    const now = new Date().toISOString()
+    return {
+      id: createSessionId(),
+      sessionId: null,
+      title: "New conversation",
+      createdAt: now,
+      updatedAt: now,
+      messages: initialMessages,
+      tags: [],
+      profileSnapshot: emptyProfile,
+      usefulLinks: [],
+      completedSteps: [],
+      activeStepIndex: 0,
+    }
+  }
+
+  const loadSession = (session: ChatSession) => {
+    setActiveSessionKey(session.id)
+    setMessages(session.messages)
+    setSessionId(session.sessionId)
+    setUsefulLinks(session.usefulLinks)
+    setProfileSaveStatus("idle")
+    setSavedProfile(
+      Object.values(session.profileSnapshot || {}).some((value) => String(value || "").trim())
+        ? session.profileSnapshot
+        : null
+    )
+    setProfileDraft(session.profileSnapshot || emptyProfile)
+    setProfileLabel(
+      Object.values(session.profileSnapshot || {}).some((value) => String(value || "").trim())
+        ? "Saved profile"
+        : "No saved profile yet"
+    )
+    setCompletedSteps(session.completedSteps || [])
+    setActiveStepIndex(session.activeStepIndex || 0)
+  }
 
   useEffect(() => {
     chatScrollRef.current?.scrollTo({
@@ -154,10 +346,89 @@ export default function Home() {
   }, [messages, isThinking])
 
   useEffect(() => {
-    if (profileLabel !== "Sample onboarding profile" && !completedSteps.includes(0)) {
-      setCompletedSteps((prev) => [...prev, 0])
+    const stored = typeof window !== "undefined" ? localStorage.getItem(SESSION_STORAGE_KEY) : null
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as ChatSession[]
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setSessions(parsed)
+          const mostRecent = [...parsed].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+          loadSession(mostRecent)
+          return
+        }
+      } catch {
+        // ignore invalid storage
+      }
     }
-  }, [profileLabel, completedSteps])
+    const fresh = createNewSession()
+    setSessions([fresh])
+    loadSession(fresh)
+  }, [])
+
+  useEffect(() => {
+    if (!activeSessionKey) return
+    setSessions((prev) => {
+      const updated = prev.map((session) => {
+        if (session.id !== activeSessionKey) return session
+        const tags = deriveTags(messages)
+        const title = buildSessionTitle(messages)
+        return {
+          ...session,
+          sessionId,
+          messages,
+          usefulLinks,
+          profileSnapshot: savedProfile || profileDraft,
+          completedSteps,
+          activeStepIndex,
+          tags,
+          title,
+          updatedAt: new Date().toISOString(),
+        }
+      })
+      if (typeof window !== "undefined") {
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(updated))
+      }
+      return updated
+    })
+  }, [activeSessionKey, messages, sessionId, usefulLinks, profileDraft, savedProfile, completedSteps, activeStepIndex])
+
+  useEffect(() => {
+    const inferred = inferCompletedSteps(messages, savedProfile)
+    const sorted = [...new Set(inferred)].sort()
+    if (sorted.join(",") !== [...completedSteps].sort().join(",")) {
+      setCompletedSteps(sorted)
+    }
+  }, [messages, savedProfile, completedSteps])
+
+  useEffect(() => {
+    const nextIndex = roadmapSteps.findIndex(
+      (_, index) => roadmapStatusForIndex(index, completedSteps) === "available"
+    )
+    if (nextIndex >= 0 && nextIndex !== activeStepIndex) {
+      setActiveStepIndex(nextIndex)
+    }
+  }, [completedSteps, roadmapSteps, activeStepIndex])
+
+  const activeTags = useMemo(() => deriveTags(messages), [messages])
+  const relatedArticles = useMemo(() => relatedArticlesForTags(activeTags), [activeTags])
+  const filteredArticles = useMemo(() => {
+    const term = knowledgeSearch.trim().toLowerCase()
+    if (!term) return knowledgeBase
+    return knowledgeBase.filter((article) => {
+      return (
+        article.title.toLowerCase().includes(term) ||
+        article.summary.toLowerCase().includes(term) ||
+        article.content.toLowerCase().includes(term)
+      )
+    })
+  }, [knowledgeSearch])
+
+  useEffect(() => {
+    if (filteredArticles.length === 0) return
+    if (!selectedArticle || !filteredArticles.some((article) => article.id === selectedArticle.id)) {
+      setSelectedArticle(filteredArticles[0])
+    }
+  }, [filteredArticles, selectedArticle])
 
   const focusChat = () => {
     chatSectionRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -168,16 +439,14 @@ export default function Home() {
     howItWorksRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
-  const resetChat = () => {
-    setSessionId(null)
-    setMessages(initialMessages)
+  const startNewChat = () => {
+    const fresh = createNewSession()
+    setSessions((prev) => [fresh, ...prev])
+    loadSession(fresh)
     setErrorMessage(null)
-    setUsefulLinks([])
-    setProfileDraft(sampleProfile)
-    setProfileLabel("Sample onboarding profile")
     setProfileSaveStatus("idle")
-    setRoadmapIndex(0)
-    setCompletedSteps([])
+    setQuickReplies([])
+    setSelectedArticle(null)
   }
 
   const handleProfileChange = (field: keyof ProfileDraft, value: string) => {
@@ -208,7 +477,9 @@ export default function Home() {
 
       const payload = await response.json()
       setSessionId(payload.session_id)
-      setProfileDraft(buildProfileDraft(payload.user_profile || emptyProfile))
+      const nextProfile = buildProfileDraft(payload.user_profile || emptyProfile)
+      setProfileDraft(nextProfile)
+      setSavedProfile(nextProfile)
       setProfileLabel("Saved profile")
       setProfileSaveStatus("saved")
       setCompletedSteps((prev) => (prev.includes(0) ? prev : [...prev, 0]))
@@ -216,6 +487,61 @@ export default function Home() {
       setProfileSaveStatus("error")
       setErrorMessage(error instanceof Error ? error.message : "Could not save profile.")
     }
+  }
+
+  const exportConversation = (format: "txt" | "md" | "pdf") => {
+    const session = sessions.find((item) => item.id === activeSessionKey)
+    if (!session) return
+
+    if (format === "txt") {
+      const content = buildExportText(session)
+      const blob = new Blob([content], { type: "text/plain;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = "evi-conversation.txt"
+      link.click()
+      URL.revokeObjectURL(url)
+      return
+    }
+
+    if (format === "md") {
+      const content = buildExportMarkdown(session)
+      const blob = new Blob([content], { type: "text/markdown;charset=utf-8" })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = "evi-conversation.md"
+      link.click()
+      URL.revokeObjectURL(url)
+      return
+    }
+
+    const content = buildExportMarkdown(session).replace(/\n/g, "<br />")
+    const printWindow = window.open("", "_blank", "width=900,height=700")
+    if (!printWindow) return
+    printWindow.document.write(
+      `<html><head><title>Evi conversation</title></head><body style="font-family: Arial, sans-serif; line-height:1.5;">${content}</body></html>`
+    )
+    printWindow.document.close()
+    printWindow.focus()
+    setTimeout(() => {
+      printWindow.print()
+    }, 300)
+  }
+
+  const handleQuickReply = (reply: string) => {
+    if (reply.startsWith("Read:")) {
+      const title = reply.replace("Read:", "").trim()
+      const article = knowledgeBase.find((item) => item.title === title)
+      if (article) {
+        setSelectedArticle(article)
+        setKnowledgeSearch(article.title)
+        knowledgeRef.current?.scrollIntoView({ behavior: "smooth" })
+      }
+      return
+    }
+    sendMessage(reply)
   }
 
   const sendMessage = async (content: string, stepIndex?: number) => {
@@ -249,19 +575,41 @@ export default function Home() {
       const payload = await response.json()
       setSessionId(payload.session_id)
       setMessages((prev) => [...prev, { role: "assistant", message: payload.reply }])
+      const nextMessages = [...messages, { role: "user", message: trimmed }, { role: "assistant", message: payload.reply }]
       if (Array.isArray(payload.useful_links)) {
         setUsefulLinks(payload.useful_links)
       }
       if (payload.user_profile && Object.keys(payload.user_profile).length > 0) {
-        setProfileDraft(buildProfileDraft(payload.user_profile))
+        const nextProfile = buildProfileDraft(payload.user_profile)
+        setProfileDraft(nextProfile)
+        setSavedProfile(nextProfile)
         setProfileLabel("Profile from onboarding")
         setCompletedSteps((prev) => (prev.includes(0) ? prev : [...prev, 0]))
       }
       if (typeof stepIndex === "number") {
         setCompletedSteps((prev) => (prev.includes(stepIndex) ? prev : [...prev, stepIndex]))
-        if (stepIndex >= roadmapIndex) {
-          setRoadmapIndex(stepIndex + 1)
+        if (stepIndex >= activeStepIndex) {
+          setActiveStepIndex(stepIndex + 1)
         }
+      }
+      if (Array.isArray(payload.prompt_suggestions) && payload.prompt_suggestions.length > 0) {
+        setQuickReplies(payload.prompt_suggestions.slice(0, 4))
+      } else {
+        const tags = deriveTags(nextMessages)
+        const related = relatedArticlesForTags(tags)
+        const profileMissing = !savedProfile
+        const nextRoadmapIndex = roadmapSteps.findIndex(
+          (_, index) => roadmapStatusForIndex(index, completedSteps) === "available"
+        )
+        const suggestions = [
+          ...(profileMissing ? ["Start onboarding"] : []),
+          ...(nextRoadmapIndex >= 0 ? [roadmapSteps[nextRoadmapIndex].prompt] : []),
+          ...tags.includes("gp") ? ["Find a GP near me", "What documents do I need?"] : [],
+          ...tags.includes("111") ? ["Is this urgent?", "Where should I go?"] : [],
+          ...tags.includes("a&e") ? ["What counts as an emergency?", "Should I call 111?"] : [],
+          ...related.map((article) => `Read: ${article.title}`),
+        ]
+        setQuickReplies(Array.from(new Set(suggestions)).slice(0, 4))
       }
     } catch (error) {
       const isAbort = error instanceof Error && error.name === "AbortError"
@@ -328,12 +676,17 @@ export default function Home() {
 
         <section className="container mx-auto px-4 pb-16">
           <div className="max-w-3xl mx-auto">
-            <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">Quick start roadmap</h3>
+            <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">
+              Your UK Healthcare Roadmap
+            </h3>
             <div className="space-y-3">
               {roadmapSteps.map((step, idx) => {
                 const isCompleted = completedSteps.includes(idx)
-                const isActive = idx === roadmapIndex
-                const status = isCompleted ? "Done" : isActive ? "In progress" : "Next"
+                const status = roadmapStatusForIndex(idx, completedSteps)
+                const isAvailable = status !== "locked"
+                const isActive = status === "available" && idx === activeStepIndex
+                const statusLabel =
+                  status === "completed" ? "Done" : status === "available" ? "Available" : "Locked"
                 return (
                   <button
                     key={step.label}
@@ -343,11 +696,11 @@ export default function Home() {
                         : "border-sand/20 bg-sand/5 text-sand/80 hover:border-sand/40"
                     } ${isCompleted ? "opacity-70" : ""}`}
                     onClick={() => {
-                      if (isCompleted) return
-                      setRoadmapIndex(idx)
+                      if (!isAvailable) return
+                      setActiveStepIndex(idx)
                       sendMessage(step.prompt, idx)
                     }}
-                    disabled={isCompleted || isThinking}
+                    disabled={!isAvailable || isThinking}
                   >
                     <div className="flex items-center gap-4">
                       <div
@@ -359,9 +712,15 @@ export default function Home() {
                       </div>
                       <div className="flex-1">
                         <p className="text-base font-semibold">{step.label}</p>
-                        <p className="text-xs uppercase tracking-wide text-sand/60 mt-1">{status}</p>
+                        <p className="text-xs uppercase tracking-wide text-sand/60 mt-1">{statusLabel}</p>
                       </div>
-                      <ChevronRight className="h-4 w-4 text-teal" />
+                      {status === "completed" ? (
+                        <CheckCircle2 className="h-4 w-4 text-teal" />
+                      ) : status === "locked" ? (
+                        <Lock className="h-4 w-4 text-sand/60" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-teal" />
+                      )}
                     </div>
                   </button>
                 )
@@ -371,77 +730,213 @@ export default function Home() {
         </section>
 
         <section ref={chatSectionRef} className="container mx-auto px-4 pb-12">
-          <div className="max-w-4xl mx-auto">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
-              <h3 className="font-serif text-2xl font-bold text-sand text-center sm:text-left">Live chat</h3>
-              <div className="flex items-center gap-3">
-                <span className="text-xs uppercase tracking-wide text-sand/70">
-                  {sessionId ? "Session active" : "New session"}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-sand/30 text-sand hover:bg-sand/10 bg-transparent"
-                  onClick={resetChat}
-                >
-                  <RotateCcw className="mr-1 h-4 w-4" />
-                  New chat
-                </Button>
-              </div>
-            </div>
-
-            <Card className="bg-sand/95 border-sand/50 p-6 shadow-2xl backdrop-blur-sm">
-              <div ref={chatScrollRef} className="space-y-4 mb-6 max-h-[420px] overflow-y-auto pr-2">
-                {messages.map((exchange, idx) => (
-                  <div
-                    key={idx}
-                    className={`flex ${exchange.role === "user" ? "justify-end" : "justify-start"} animate-fade-in`}
-                    style={{ animationDelay: `${idx * 60}ms` }}
-                  >
-                    <div
-                      className={`max-w-[80%] rounded-2xl px-5 py-3 ${
-                        exchange.role === "user"
-                          ? "bg-teal text-white"
-                          : "bg-navy/10 text-navy border border-navy/20"
-                      }`}
+          <div className="max-w-6xl mx-auto">
+            <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div>
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
+                  <h3 className="font-serif text-2xl font-bold text-sand text-center sm:text-left">Live chat</h3>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs uppercase tracking-wide text-sand/70">
+                      {sessionId ? "Session active" : "New session"}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-sand/30 text-sand hover:bg-sand/10 bg-transparent"
+                      onClick={startNewChat}
                     >
-                      <p
-                        className="text-sm leading-relaxed whitespace-pre-wrap"
-                        dangerouslySetInnerHTML={formatMessage(exchange.message)}
-                      ></p>
-                    </div>
+                      <RotateCcw className="mr-1 h-4 w-4" />
+                      New chat
+                    </Button>
                   </div>
-                ))}
-                {isThinking && (
-                  <div className="flex justify-start">
-                    <div className="bg-navy/10 text-navy border border-navy/20 rounded-2xl px-5 py-3">
-                      <p className="text-sm italic">Thinking...</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {errorMessage && (
-                <div className="mb-4 rounded-lg border border-coral/50 bg-coral/10 px-4 py-3 text-sm text-coral">
-                  {errorMessage}
                 </div>
-              )}
 
-              <div className="flex gap-3">
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && sendMessage(chatInput)}
-                  placeholder="Ask a question or type 'onboarding'..."
-                  className="flex-1 px-4 py-3 rounded-lg border-2 border-navy/20 focus:border-teal focus:outline-none bg-white text-navy placeholder:text-navy/50"
-                />
-                <Button onClick={() => sendMessage(chatInput)} className="bg-teal hover:bg-teal/90 text-white px-6">
-                  <MessageCircle className="h-5 w-5" />
-                </Button>
+                <Card className="bg-sand/95 border-sand/50 p-6 shadow-2xl backdrop-blur-sm">
+                  <div ref={chatScrollRef} className="space-y-4 mb-6 max-h-[420px] overflow-y-auto pr-2">
+                    {messages.map((exchange, idx) => (
+                      <div
+                        key={idx}
+                        className={`flex ${exchange.role === "user" ? "justify-end" : "justify-start"} animate-fade-in`}
+                        style={{ animationDelay: `${idx * 60}ms` }}
+                      >
+                        <div
+                          className={`max-w-[80%] rounded-2xl px-5 py-3 ${
+                            exchange.role === "user"
+                              ? "bg-teal text-white"
+                              : "bg-navy/10 text-navy border border-navy/20"
+                          }`}
+                        >
+                          <p
+                            className="text-sm leading-relaxed whitespace-pre-wrap"
+                            dangerouslySetInnerHTML={formatMessage(exchange.message)}
+                          ></p>
+                        </div>
+                      </div>
+                    ))}
+                    {isThinking && (
+                      <div className="flex justify-start">
+                        <div className="bg-navy/10 text-navy border border-navy/20 rounded-2xl px-5 py-3">
+                          <p className="text-sm italic">Thinking...</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {errorMessage && (
+                    <div className="mb-4 rounded-lg border border-coral/50 bg-coral/10 px-4 py-3 text-sm text-coral">
+                      {errorMessage}
+                    </div>
+                  )}
+
+                  <div className="flex gap-3">
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && sendMessage(chatInput)}
+                      placeholder="Ask a question or type 'onboarding'..."
+                      className="flex-1 px-4 py-3 rounded-lg border-2 border-navy/20 focus:border-teal focus:outline-none bg-white text-navy placeholder:text-navy/50"
+                    />
+                    <Button
+                      onClick={() => sendMessage(chatInput)}
+                      className="bg-teal hover:bg-teal/90 text-white px-6"
+                    >
+                      <MessageCircle className="h-5 w-5" />
+                    </Button>
+                  </div>
+
+                  {quickReplies.length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Quick replies</p>
+                      <div className="flex flex-wrap gap-2">
+                        {quickReplies.map((reply) => (
+                          <button
+                            key={reply}
+                            className="rounded-full border border-navy/20 px-3 py-1 text-xs text-navy hover:border-teal hover:text-teal transition-colors"
+                            onClick={() => handleQuickReply(reply)}
+                          >
+                            {reply}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </Card>
               </div>
-            </Card>
+
+              <aside className="space-y-6">
+                <Card className="bg-sand/95 border-sand/50 p-5 shadow-2xl backdrop-blur-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold text-navy">Saved profile</h4>
+                    <span className="text-xs text-navy/50">{profileLabel}</span>
+                  </div>
+                  {savedProfile ? (
+                    <div className="space-y-2 text-sm text-navy/80">
+                      {profileFields.map((field) => (
+                        <div key={field.key} className="flex justify-between gap-3">
+                          <span className="text-navy/60">{field.label}</span>
+                          <span className="font-medium text-navy">
+                            {savedProfile[field.key as keyof ProfileDraft] || "Not provided"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-navy/60">
+                      No profile saved yet. Complete onboarding to populate this summary.
+                    </p>
+                  )}
+                </Card>
+
+                <Card className="bg-sand/95 border-sand/50 p-5 shadow-2xl backdrop-blur-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <History className="h-4 w-4 text-teal" />
+                    <h4 className="text-sm font-semibold text-navy">Chat history</h4>
+                  </div>
+                  <div className="space-y-3 max-h-[240px] overflow-y-auto pr-2">
+                    {sessions.length === 0 ? (
+                      <p className="text-sm text-navy/60">No saved sessions yet.</p>
+                    ) : (
+                      sessions.map((session) => (
+                        <button
+                          key={session.id}
+                          className={`w-full text-left rounded-lg border px-3 py-2 transition-colors ${
+                            session.id === activeSessionKey
+                              ? "border-teal bg-teal/10 text-navy"
+                              : "border-navy/10 text-navy/70 hover:border-teal/60"
+                          }`}
+                          onClick={() => loadSession(session)}
+                        >
+                          <p className="text-sm font-semibold">{session.title}</p>
+                          <p className="text-xs text-navy/50">{formatTimestamp(session.updatedAt)}</p>
+                          <p className="text-[11px] text-navy/50 mt-1">
+                            Tags: {session.tags.join(", ") || "None"}
+                          </p>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </Card>
+
+                <Card className="bg-sand/95 border-sand/50 p-5 shadow-2xl backdrop-blur-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Download className="h-4 w-4 text-teal" />
+                    <h4 className="text-sm font-semibold text-navy">Export this conversation</h4>
+                  </div>
+                  <p className="text-xs text-navy/60 mb-3">
+                    Exports include a non-clinical disclaimer.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-navy/20 text-navy"
+                      onClick={() => exportConversation("txt")}
+                    >
+                      TXT
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-navy/20 text-navy"
+                      onClick={() => exportConversation("md")}
+                    >
+                      Markdown
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-navy/20 text-navy"
+                      onClick={() => exportConversation("pdf")}
+                    >
+                      PDF
+                    </Button>
+                  </div>
+                </Card>
+
+                <Card className="bg-sand/95 border-sand/50 p-5 shadow-2xl backdrop-blur-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Shield className="h-4 w-4 text-teal" />
+                    <h4 className="text-sm font-semibold text-navy">Trust & governance</h4>
+                  </div>
+                  <div className="space-y-2 text-sm text-navy/70">
+                    <Link className="block hover:text-teal" href="/how-evi-works">
+                      How Evi works
+                    </Link>
+                    <Link className="block hover:text-teal" href="/clinical-boundaries">
+                      Clinical boundaries
+                    </Link>
+                    <Link className="block hover:text-teal" href="/emergency-handling">
+                      Emergency handling
+                    </Link>
+                    <Link className="block hover:text-teal" href="/data-privacy">
+                      Data and privacy
+                    </Link>
+                  </div>
+                </Card>
+              </aside>
+            </div>
           </div>
         </section>
 
@@ -471,6 +966,98 @@ export default function Home() {
                   ))}
                 </div>
               )}
+              {relatedArticles.length > 0 && (
+                <div className="mt-6 border-t border-navy/10 pt-6">
+                  <div className="flex items-center gap-2 mb-3 text-navy">
+                    <BookOpen className="h-4 w-4 text-teal" />
+                    <h4 className="text-sm font-semibold">Related knowledge base articles</h4>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {relatedArticles.map((article) => (
+                      <button
+                        key={article.id}
+                        className="rounded-lg border border-navy/20 p-3 text-left hover:border-teal hover:bg-teal/5 transition-all"
+                        onClick={() => {
+                          setSelectedArticle(article)
+                          setKnowledgeSearch(article.title)
+                          knowledgeRef.current?.scrollIntoView({ behavior: "smooth" })
+                        }}
+                      >
+                        <p className="text-sm font-semibold text-navy">{article.title}</p>
+                        <p className="text-xs text-navy/60 mt-1">{article.summary}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          </div>
+        </section>
+
+        <section ref={knowledgeRef} className="container mx-auto px-4 pb-16">
+          <div className="max-w-5xl mx-auto">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+              <h3 className="font-serif text-2xl font-bold text-sand">Knowledge base</h3>
+              <div className="flex items-center gap-2 bg-sand/10 border border-sand/30 rounded-full px-4 py-2">
+                <Search className="h-4 w-4 text-sand" />
+                <input
+                  type="text"
+                  value={knowledgeSearch}
+                  onChange={(event) => setKnowledgeSearch(event.target.value)}
+                  placeholder="Search NHS topics"
+                  className="bg-transparent text-sand placeholder:text-sand/60 text-sm focus:outline-none"
+                />
+              </div>
+            </div>
+            <Card className="bg-sand/95 border-sand/50 p-6 shadow-2xl backdrop-blur-sm">
+              <div className="grid gap-6 md:grid-cols-[260px_minmax(0,1fr)]">
+                <div className="space-y-3">
+                  {filteredArticles.map((article) => (
+                    <button
+                      key={article.id}
+                      className={`w-full text-left rounded-lg border px-3 py-2 transition-colors ${
+                        selectedArticle?.id === article.id
+                          ? "border-teal bg-teal/10 text-navy"
+                          : "border-navy/10 text-navy/70 hover:border-teal/60"
+                      }`}
+                      onClick={() => setSelectedArticle(article)}
+                    >
+                      <p className="text-sm font-semibold">{article.title}</p>
+                      <p className="text-xs text-navy/50 mt-1">{article.updatedAt}</p>
+                    </button>
+                  ))}
+                </div>
+                <div>
+                  {selectedArticle ? (
+                    <div>
+                      <h4 className="font-serif text-xl font-bold text-navy">{selectedArticle.title}</h4>
+                      <p className="text-xs text-navy/50 mt-1">
+                        Version {selectedArticle.version} • Updated {selectedArticle.updatedAt}
+                      </p>
+                      <div className="mt-4 space-y-4 text-sm text-navy/80">
+                        {selectedArticle.content.split("\n\n").map((paragraph, idx) => (
+                          <p key={idx}>{paragraph}</p>
+                        ))}
+                      </div>
+                      <div className="mt-4 text-xs text-navy/60">
+                        Sources:{" "}
+                        {selectedArticle.sources.map((source, idx) => (
+                          <span key={source.url}>
+                            <a className="underline" href={source.url} target="_blank" rel="noreferrer">
+                              {source.title}
+                            </a>
+                            {idx < selectedArticle.sources.length - 1 ? ", " : ""}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-navy/60">
+                      Select an article to view details and NHS sources.
+                    </p>
+                  )}
+                </div>
+              </div>
             </Card>
           </div>
         </section>

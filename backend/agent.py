@@ -147,6 +147,7 @@ class AgentSession:
             "answers": {},
             "expecting_answer": False,
             "reprompted": False,
+            "review_pending": False,
         }
         self.triage_active = False
 
@@ -170,14 +171,83 @@ class AgentSession:
         return str(question.get("question", "")).strip()
 
     def _normalize_onboarding_answer(self, raw: str):
-        """Normalize onboarding input and indicate if a reprompt is needed."""
+        """Normalize onboarding input (strip, lowercase skip tokens)."""
         text = (raw or "").strip()
         if text == "":
-            return None, True
+            return "", True
         lowered = text.lower()
         if lowered in {"skip", "prefer not to say", "n/a", "na"}:
-            return None, False
+            return "", False
         return text, False
+
+    def _validate_age_range(self, text: str) -> Optional[str]:
+        if re.match(r"^\d{1,2}\s*-\s*\d{1,2}$", text):
+            return text.replace(" ", "")
+        if re.match(r"^\d{1,2}\+$", text):
+            return text
+        return None
+
+    def _validate_yes_no(self, text: str) -> Optional[str]:
+        lowered = text.lower()
+        if lowered in {"yes", "y"}:
+            return "Yes"
+        if lowered in {"no", "n"}:
+            return "No"
+        return None
+
+    def _validate_postcode(self, text: str) -> Optional[str]:
+        cleaned = re.sub(r"\s+", "", text.upper())
+        if re.match(r"^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$", cleaned):
+            return f"{cleaned[:-3]} {cleaned[-3:]}"
+        if re.match(r"^[A-Z]{1,2}\d[A-Z\d]?$", cleaned):
+            return cleaned
+        return None
+
+    def _validate_required_text(self, text: str) -> Optional[str]:
+        return text.strip() or None
+
+    def _validate_optional_text(self, text: str) -> Optional[str]:
+        return text.strip() or None
+
+    def _validate_onboarding_answer(self, question: Dict[str, Any], raw: str) -> Tuple[Optional[str], Optional[str]]:
+        """Validate a single onboarding answer and return (value, error_message)."""
+        key = str(question.get("key", "")).strip()
+        optional = bool(question.get("optional", False))
+        text, was_empty = self._normalize_onboarding_answer(raw)
+
+        if was_empty:
+            return None, "Please enter a response."
+
+        if text == "":
+            if optional:
+                return None, None
+            return None, "This question is required."
+
+        validators = {
+            "name": self._validate_optional_text,
+            "age_range": self._validate_age_range,
+            "stay_length": self._validate_required_text,
+            "postcode": self._validate_postcode,
+            "visa_status": self._validate_required_text,
+            "gp_registered": self._validate_yes_no,
+            "conditions": self._validate_optional_text,
+            "medications": self._validate_optional_text,
+            "lifestyle_focus": self._validate_required_text,
+            "mental_wellbeing": self._validate_optional_text,
+        }
+
+        validator = validators.get(key, self._validate_optional_text)
+        normalized = validator(text)
+        if normalized is None and not optional:
+            if key == "gp_registered":
+                return None, "Please answer with yes or no."
+            if key == "age_range":
+                return None, "Please use an age range like 18-24 or 25+."
+            if key == "postcode":
+                return None, "Please enter a UK postcode or area (e.g., NW8 or NW8 9HU)."
+            return None, "Please enter a valid response."
+
+        return normalized, None
 
     def _derive_postcode_fields(self, postcode_raw: str) -> Tuple[Optional[str], Optional[str]]:
         text = (postcode_raw or "").strip().upper()
@@ -194,8 +264,7 @@ class AgentSession:
         area = text.split(" ")[0]
         return None, area
 
-    def _finalize_onboarding_flow(self) -> str:
-        """Persist profile, add deterministic eligibility summary, and close onboarding."""
+    def _build_onboarding_profile(self) -> Dict[str, Any]:
         questions = self.onboarding_state.get("questions") if self.onboarding_state else []
         answers = self.onboarding_state.get("answers") if self.onboarding_state else {}
         profile = {q.get("key"): answers.get(q.get("key")) for q in (questions or [])}
@@ -205,12 +274,43 @@ class AgentSession:
             profile["postcode_full"] = postcode_full
         if postcode_area:
             profile["postcode_area"] = postcode_area
+        return profile
 
+    def _format_profile_review(self, profile: Dict[str, Any]) -> str:
+        questions = self.onboarding_state.get("questions") if self.onboarding_state else []
+        lines = ["Please review your profile before I save it:"]
+        for question in questions or []:
+            key = question.get("key")
+            label = str(question.get("question", "")).rstrip("?").strip()
+            value = profile.get(key)
+            display = str(value) if value else "Not provided"
+            lines.append(f"- {label}: {display}")
+        lines.append("Reply 'yes' to save or 'no' to restart onboarding.")
+        return "\n".join(lines)
+
+    def _finalize_onboarding_flow(self, profile: Dict[str, Any]) -> str:
+        """Persist profile, add deterministic eligibility summary, and close onboarding."""
         profile_json = json.dumps(profile)
         completion_note = "Onboarding is complete. I have saved these details for future chats."
         eligibility = self._eligibility_summary_from_profile(profile)
         summary = f"{completion_note}\n\n{eligibility}" if eligibility else completion_note
         return f"<USER_PROFILE>{profile_json}</USER_PROFILE>\n{summary}"
+
+    def _start_profile_review(self) -> str:
+        self.onboarding_state["review_pending"] = True
+        profile = self._build_onboarding_profile()
+        self.onboarding_state["profile_preview"] = profile
+        return self._format_profile_review(profile)
+
+    def _handle_onboarding_review(self, user_input: str) -> str:
+        decision = (user_input or "").strip().lower()
+        if decision in {"yes", "y"}:
+            profile = self.onboarding_state.get("profile_preview") or self._build_onboarding_profile()
+            return self._finalize_onboarding_flow(profile)
+        if decision in {"no", "n"}:
+            self._start_onboarding()
+            return "No problem. Let's restart.\n" + self._prompt_next_onboarding_question()
+        return "Please reply 'yes' to save or 'no' to restart onboarding."
 
     def _eligibility_summary_from_profile(self, profile: Dict[str, Any]) -> str:
         """Derive likely service eligibility based on stored onboarding answers."""
@@ -255,13 +355,13 @@ class AgentSession:
 
         question = self._onboarding_current_question()
         if not question:
-            return self._finalize_onboarding_flow()
+            return self._start_profile_review()
 
-        answer, was_empty = self._normalize_onboarding_answer(user_input)
-        if was_empty and not self.onboarding_state.get("reprompted", False):
+        answer, error = self._validate_onboarding_answer(question, user_input)
+        if error:
             self.onboarding_state["reprompted"] = True
             self.onboarding_state["expecting_answer"] = True
-            return f"I did not catch that. {question.get('question', '').strip()}"
+            return f"{error} {question.get('question', '').strip()}"
 
         # store answer (None allowed for skips/empty after reprompt)
         self.onboarding_state["answers"][question.get("key")] = answer
@@ -272,7 +372,90 @@ class AgentSession:
         # ask next question or finish
         if self._onboarding_current_question():
             return self._prompt_next_onboarding_question()
-        return self._finalize_onboarding_flow()
+        return self._start_profile_review()
+
+    def _build_routing_response(
+        self,
+        triage_result: Dict[str, Any],
+        presenting_issue: str,
+        nearest_services: Optional[Any],
+    ) -> str:
+        service = triage_result.get("suggested_service") or "NHS_111"
+        service_label = {
+            "A&E": "A&E (Accident & Emergency)",
+            "GP": "GP (General Practitioner)",
+            "NHS_111": "NHS 111",
+            "PHARMACY_SELFCARE": "Pharmacy or self-care",
+            "MENTAL_HEALTH_CRISIS": "Mental health crisis support",
+        }.get(service, "NHS 111")
+
+        rationale = triage_result.get("rationale") or "Based on what you've shared, this is the safest next step."
+        postcode_full = triage_result.get("postcode_full") or ""
+
+        next_steps = []
+        if service == "A&E":
+            next_steps.append("Go to A&E now. If you are in immediate danger, call 999.")
+        elif service == "GP":
+            next_steps.append("Contact a local GP practice to register or request an appointment.")
+        elif service == "NHS_111":
+            next_steps.append("Call 111 or use 111.nhs.uk for urgent advice and booking support.")
+        elif service == "PHARMACY_SELFCARE":
+            next_steps.append("Visit a local pharmacy for advice and over-the-counter options.")
+        elif service == "MENTAL_HEALTH_CRISIS":
+            next_steps.append("If you feel unsafe, call 999. Otherwise call NHS 111 and ask for crisis support.")
+
+        next_steps.append("Check opening hours and whether it is walk-in or appointment-based.")
+
+        services_lines = []
+        if isinstance(nearest_services, list) and nearest_services:
+            services_lines.append("Nearest services (based on your postcode):")
+            for item in nearest_services[:3]:
+                name = item.get("name", "Service")
+                distance = item.get("distance", "")
+                address = item.get("address", "")
+                phone = item.get("phone", "")
+                details = " | ".join([part for part in [distance, address, phone] if part])
+                services_lines.append(f"- {name}{' - ' + details if details else ''}")
+
+        script_parts = [
+            "I am an international student in London.",
+            f"My concern is: {presenting_issue.strip()}." if presenting_issue else "",
+            f"My postcode is {postcode_full}." if postcode_full else "",
+        ]
+        script = " ".join([part for part in script_parts if part])
+
+        safety_net = (
+            "If you develop severe symptoms (chest pain, trouble breathing, heavy bleeding, "
+            "sudden confusion, or you feel unsafe), go to A&E or call 999 immediately."
+        )
+
+        lines = [
+            "Recommendation",
+            f"Best option: {service_label}",
+            "",
+            "Why",
+            rationale,
+            "",
+            "What to do next",
+            *next_steps,
+        ]
+
+        if services_lines:
+            lines.append("")
+            lines.extend(services_lines)
+
+        lines.extend(
+            [
+                "",
+                "What to say",
+                script or "I need help deciding the right NHS service for my symptoms.",
+                "",
+                "Safety net",
+                safety_net,
+            ]
+        )
+
+        return "\n".join(lines)
 
     def _contains_action(self, text: str) -> bool:
         lowered = (text or "").lower()
@@ -459,6 +642,9 @@ class AgentSession:
         # SHORT-CIRCUIT: ACTIVE ONBOARDING
         # -------------------------------
         if self.onboarding_active and self.onboarding_state:
+            if self.onboarding_state.get("review_pending", False):
+                reply = self._handle_onboarding_review(user_input)
+                return self._process_final_reply(user_input, reply)
             if not self.onboarding_state.get("expecting_answer", False) and self.onboarding_state.get("current_idx", 0) == 0:
                 reply = self._prompt_next_onboarding_question()
                 return self._process_final_reply(user_input, reply)
@@ -516,6 +702,8 @@ class AgentSession:
         tool_rounds = 0
         bailed_with_unresolved_calls = False
         triage_lookup_done = False
+        triage_result: Optional[Dict[str, Any]] = None
+        nearest_services_result: Optional[Any] = None
 
         # -------------------------------
         # BATCH TOOL HANDLING LOOP
@@ -561,6 +749,8 @@ class AgentSession:
                     if not isinstance(parsed_tool, dict) or parsed_tool.get("status") not in {"need_more_info", "final"}:
                         parsed_tool = self._fallback_triage_result(args.get("postcode_full", "") or "")
                         tool_result = parsed_tool
+                    if isinstance(parsed_tool, dict) and parsed_tool.get("status") == "final":
+                        triage_result = parsed_tool
 
                 tool_output_str = tool_result if isinstance(tool_result, str) else json.dumps(tool_result)
 
@@ -597,6 +787,7 @@ class AgentSession:
                                 "output": lookup if isinstance(lookup, str) else json.dumps(lookup),
                             }
                         )
+                        nearest_services_result = lookup
                         triage_lookup_done = True
                     except Exception:
                         pass
@@ -614,6 +805,13 @@ class AgentSession:
         # FINAL TEXT RESPONSE
         # -------------------------------
         agent_reply = final_response.output_text or ""
+
+        if isinstance(triage_result, dict) and triage_result.get("status") == "final":
+            agent_reply = self._build_routing_response(
+                triage_result=triage_result,
+                presenting_issue=user_input,
+                nearest_services=nearest_services_result,
+            )
 
         # If unresolved tool calls, force text-only reply
         if bailed_with_unresolved_calls:

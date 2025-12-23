@@ -53,6 +53,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${fraunces.variable} ${ibmPlexSans.variable}`}>
       <body className="font-sans antialiased">
+        <div className="bg-coral text-white text-xs sm:text-sm text-center py-2 px-4">
+          Not for emergencies. If you are in immediate danger, call 999.
+        </div>
         {children}
         <Analytics />
       </body>
