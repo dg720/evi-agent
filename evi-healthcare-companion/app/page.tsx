@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog,
   DialogContent,
@@ -366,7 +366,6 @@ export default function Home() {
   const [showAllArticles, setShowAllArticles] = useState(false)
 
   const chatSectionRef = useRef<HTMLDivElement>(null)
-  const howItWorksRef = useRef<HTMLDivElement>(null)
   const knowledgeRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
@@ -514,7 +513,7 @@ export default function Home() {
   }
 
   const focusHowItWorks = () => {
-    howItWorksRef.current?.scrollIntoView({ behavior: "smooth" })
+    knowledgeRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
   const startNewChat = () => {
@@ -760,27 +759,27 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="container mx-auto px-4 pb-16">
-          <div className="max-w-2xl mx-auto">
-            <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">
+        <section className="container mx-auto px-4 pb-12">
+          <div className="max-w-5xl mx-auto">
+            <h3 className="font-serif text-xl font-bold text-sand mb-4 text-center">
               Your UK Healthcare Roadmap
             </h3>
-            <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-center gap-2 rounded-full border border-sand/20 bg-sand/5 px-4 py-3">
               {roadmapSteps.map((step, idx) => {
                 const isCompleted = completedSteps.includes(idx)
                 const status = roadmapStatusForIndex(idx, completedSteps)
                 const isAvailable = status !== "locked"
                 const isActive = status === "available" && idx === activeStepIndex
-                const statusLabel =
-                  status === "completed" ? "Done" : status === "available" ? "Available" : "Locked"
                 return (
                   <button
                     key={step.label}
-                    className={`w-full text-left rounded-xl border-2 px-5 py-4 transition-all ${
+                    className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
                       isActive
-                        ? "border-teal bg-teal/10 text-sand"
-                        : "border-sand/20 bg-sand/5 text-sand/80 hover:border-sand/40"
-                    } ${isCompleted ? "opacity-70" : ""}`}
+                        ? "border-teal bg-teal/15 text-sand"
+                        : isCompleted
+                        ? "border-teal/60 bg-teal/10 text-sand/80"
+                        : "border-sand/30 bg-transparent text-sand/70 hover:border-sand/50"
+                    }`}
                     onClick={() => {
                       focusChat()
                       if (!isAvailable) return
@@ -789,26 +788,21 @@ export default function Home() {
                     }}
                     disabled={isThinking}
                   >
-                    <div className="flex items-center gap-4">
-                      <div
-                        className={`h-9 w-9 rounded-full flex items-center justify-center font-semibold ${
-                          isCompleted || isActive ? "bg-teal text-white" : "bg-sand/20 text-sand"
-                        }`}
-                      >
-                        {idx + 1}
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-base font-semibold">{step.label}</p>
-                        <p className="text-xs uppercase tracking-wide text-sand/60 mt-1">{statusLabel}</p>
-                      </div>
-                      {status === "completed" ? (
-                        <CheckCircle2 className="h-4 w-4 text-teal" />
-                      ) : status === "locked" ? (
-                        <Lock className="h-4 w-4 text-sand/60" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 text-teal" />
-                      )}
-                    </div>
+                    <span
+                      className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
+                        isCompleted || isActive ? "bg-teal text-white" : "bg-sand/20 text-sand"
+                      }`}
+                    >
+                      {idx + 1}
+                    </span>
+                    <span className="whitespace-nowrap">{step.label}</span>
+                    {status === "completed" ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-teal" />
+                    ) : status === "locked" ? (
+                      <Lock className="h-3.5 w-3.5 text-sand/60" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 text-teal" />
+                    )}
                   </button>
                 )
               })}
@@ -830,18 +824,18 @@ export default function Home() {
                       variant="outline"
                       size="sm"
                       className="border-sand/30 text-sand hover:bg-sand/10 bg-transparent"
-                      onClick={() => exportConversation("txt")}
+                      onClick={startNewChat}
                     >
-                      Export .txt
+                      <RotateCcw className="mr-1 h-4 w-4" />
+                      New chat
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       className="border-sand/30 text-sand hover:bg-sand/10 bg-transparent"
-                      onClick={startNewChat}
+                      onClick={() => exportConversation("txt")}
                     >
-                      <RotateCcw className="mr-1 h-4 w-4" />
-                      New chat
+                      Export
                     </Button>
                   </div>
                 </div>
@@ -975,15 +969,81 @@ export default function Home() {
         <section ref={knowledgeRef} className="container mx-auto px-4 pb-16">
           <div className="max-w-5xl mx-auto">
             <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
-              <Accordion type="single" collapsible>
-                <AccordionItem value="knowledge-base" className="border-navy/10">
-                  <AccordionTrigger className="text-navy py-3 text-base">
-                    <div className="flex w-full flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <span className="font-serif text-xl font-bold">Knowledge base</span>
-                      <div
-                        className="flex items-center gap-2 bg-navy/5 border border-navy/10 rounded-full px-4 py-2"
-                        onClick={(event) => event.stopPropagation()}
-                      >
+              <Tabs defaultValue="help" className="gap-4">
+                <TabsList className="w-full flex flex-wrap justify-start gap-2 bg-transparent p-0">
+                  <TabsTrigger
+                    value="help"
+                    className="flex-none rounded-t-md border border-navy/10 bg-sand/60 px-3 py-1.5 text-sm font-semibold text-navy/70 data-[state=active]:bg-sand data-[state=active]:text-navy data-[state=active]:border-navy/20"
+                  >
+                    How I can help
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="examples"
+                    className="flex-none rounded-t-md border border-navy/10 bg-sand/60 px-3 py-1.5 text-sm font-semibold text-navy/70 data-[state=active]:bg-sand data-[state=active]:text-navy data-[state=active]:border-navy/20"
+                  >
+                    Example responses
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="knowledge"
+                    className="flex-none rounded-t-md border border-navy/10 bg-sand/60 px-3 py-1.5 text-sm font-semibold text-navy/70 data-[state=active]:bg-sand data-[state=active]:text-navy data-[state=active]:border-navy/20"
+                  >
+                    Knowledge base
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="profile"
+                    className="flex-none rounded-t-md border border-navy/10 bg-sand/60 px-3 py-1.5 text-sm font-semibold text-navy/70 data-[state=active]:bg-sand data-[state=active]:text-navy data-[state=active]:border-navy/20"
+                  >
+                    Edit profile
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="history"
+                    className="flex-none rounded-t-md border border-navy/10 bg-sand/60 px-3 py-1.5 text-sm font-semibold text-navy/70 data-[state=active]:bg-sand data-[state=active]:text-navy data-[state=active]:border-navy/20"
+                  >
+                    Chat history
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="help">
+                  <div className="rounded-lg border border-navy/10 bg-white/70 p-4">
+                    <div className="prose prose-lg max-w-none text-navy/90 leading-relaxed">
+                      <p className="mb-4">
+                        Hi there, welcome to the LBS Community! My name is Evi - Your LBS Healthcare Companion.
+                      </p>
+                      <p className="mb-4">
+                        Now that you have made it to London, I am sure you have a lot of questions about navigating the
+                        NHS and LBS wellbeing services.
+                      </p>
+                      <p className="mb-4">Feel free to start with one of the examples below to get you oriented.</p>
+                      <ul className="space-y-2 mb-4">
+                        <li>Better understand when and how to use NHS services (GP, NHS 111, A&amp;E, and more!)</li>
+                        <li>Locate mental health or wellbeing support</li>
+                        <li>Get more information about preventative-care guidance</li>
+                      </ul>
+                      <p className="text-teal font-semibold">
+                        Or, type "onboarding" at any time, and I will ask a few brief questions to get to know you better.
+                      </p>
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="examples">
+                  <div className="rounded-lg border border-navy/10 bg-white/70 p-4 space-y-4">
+                    {exampleResponses.map((item, idx) => (
+                      <div key={idx} className="rounded-lg border border-navy/15 bg-white/70 p-4">
+                        <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Student</p>
+                        <p className="text-navy font-medium mb-3">{item.question}</p>
+                        <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Evi</p>
+                        <p className="text-navy/80 text-sm leading-relaxed">{item.response}</p>
+                      </div>
+                    ))}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="knowledge">
+                  <div className="rounded-lg border border-navy/10 bg-white/70 p-4">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                      <h4 className="font-serif text-lg font-bold text-navy">Knowledge base</h4>
+                      <div className="flex items-center gap-2 bg-navy/5 border border-navy/10 rounded-full px-4 py-2">
                         <Search className="h-4 w-4 text-navy/70" />
                         <input
                           type="text"
@@ -994,10 +1054,8 @@ export default function Home() {
                         />
                       </div>
                     </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="pt-2">
-                    <div className="grid gap-6 md:grid-cols-[260px_minmax(0,1fr)]">
-                      <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2">
+                    <div className="grid gap-6 md:grid-cols-[240px_minmax(0,1fr)]">
+                      <div className="space-y-3 max-h-[260px] overflow-y-auto pr-2">
                         {visibleArticles.map((article) => (
                           <button
                             key={article.id}
@@ -1052,23 +1110,79 @@ export default function Home() {
                         )}
                       </div>
                     </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </Card>
-          </div>
-        </section>
+                  </div>
+                </TabsContent>
 
-        <section className="container mx-auto px-4 pb-16">
-          <div className="max-w-5xl mx-auto">
-            <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
-              <Accordion type="single" collapsible>
-                <AccordionItem value="chat-history" className="border-navy/10">
-                  <AccordionTrigger className="text-navy py-3 text-base">
-                    <span className="font-serif text-xl font-bold">Chat history</span>
-                  </AccordionTrigger>
-                  <AccordionContent className="pt-2">
-                    <div className="space-y-2 max-h-[220px] overflow-y-auto pr-2">
+                <TabsContent value="profile">
+                  <div className="rounded-lg border border-navy/10 bg-white/70 p-4 space-y-6">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h4 className="font-serif text-lg font-bold text-navy">Onboarding profile</h4>
+                        <p className="text-navy/70 mt-2">
+                          Edit these details any time. When onboarding finishes, this view updates automatically.
+                        </p>
+                      </div>
+                      <span className="text-xs text-navy/50">{profileLabel}</span>
+                    </div>
+
+                    <details className="group" open>
+                      <summary className="cursor-pointer text-sm font-semibold text-teal">
+                        Profile details
+                      </summary>
+                      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {profileFields.map((field) => (
+                          <div key={field.key}>
+                            <label className="block text-xs font-semibold text-navy/70 mb-2">{field.label}</label>
+                            <input
+                              type="text"
+                              value={profileDraft[field.key as keyof ProfileDraft]}
+                              onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
+                              placeholder={field.placeholder}
+                              className="w-full rounded-lg border border-navy/20 px-3 py-2 text-sm text-navy"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+
+                    <details>
+                      <summary className="cursor-pointer text-sm font-semibold text-teal">
+                        Additional context
+                      </summary>
+                      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {profileTextAreas.map((field) => (
+                          <div key={field.key}>
+                            <label className="block text-xs font-semibold text-navy/70 mb-2">{field.label}</label>
+                            <textarea
+                              value={profileDraft[field.key as keyof ProfileDraft]}
+                              onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
+                              placeholder={field.placeholder}
+                              rows={2}
+                              className="w-full rounded-lg border border-navy/20 px-3 py-2 text-sm text-navy"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button onClick={saveProfile} className="bg-teal hover:bg-teal/90 text-white">
+                        <Save className="mr-2 h-4 w-4" />
+                        {profileSaveStatus === "saving" ? "Saving..." : "Save profile"}
+                      </Button>
+                      {profileSaveStatus === "saved" && (
+                        <span className="text-sm text-teal">Saved to this session.</span>
+                      )}
+                      {profileSaveStatus === "error" && (
+                        <span className="text-sm text-coral">Could not save profile.</span>
+                      )}
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="history">
+                  <div className="rounded-lg border border-navy/10 bg-white/70 p-4">
+                    <div className="space-y-2 max-h-[240px] overflow-y-auto pr-2">
                       {sessions.length === 0 ? (
                         <p className="text-xs text-navy/60">No saved sessions yet.</p>
                       ) : (
@@ -1091,152 +1205,9 @@ export default function Home() {
                         ))
                       )}
                     </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </Card>
-          </div>
-        </section>
-
-        <section ref={howItWorksRef} className="container mx-auto px-4 pb-16">
-          <div className="max-w-5xl mx-auto">
-            <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
-              <Accordion type="single" collapsible>
-                <AccordionItem value="how-it-works" className="border-navy/10">
-                  <AccordionTrigger className="text-navy py-3 text-base">
-                    <div className="flex w-full items-center justify-between gap-4">
-                      <span className="font-serif text-xl font-bold">Edit your profile</span>
-                      <span className="text-xs text-navy/50">{profileLabel}</span>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="pt-2">
-                    <div className="space-y-6">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <h4 className="font-serif text-lg font-bold text-navy">Onboarding profile</h4>
-                          <p className="text-navy/70 mt-2">
-                            Edit these details any time. When onboarding finishes, this view updates automatically.
-                          </p>
-                        </div>
-                        <div className="text-xs uppercase tracking-wide text-navy/50">Editable</div>
-                      </div>
-
-                      <details className="group" open>
-                        <summary className="cursor-pointer text-sm font-semibold text-teal">
-                          Profile details
-                        </summary>
-                        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {profileFields.map((field) => (
-                            <div key={field.key}>
-                              <label className="block text-xs font-semibold text-navy/70 mb-2">{field.label}</label>
-                              <input
-                                type="text"
-                                value={profileDraft[field.key as keyof ProfileDraft]}
-                                onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
-                                placeholder={field.placeholder}
-                                className="w-full rounded-lg border border-navy/20 px-3 py-2 text-sm text-navy"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-
-                      <details>
-                        <summary className="cursor-pointer text-sm font-semibold text-teal">
-                          Additional context
-                        </summary>
-                        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {profileTextAreas.map((field) => (
-                            <div key={field.key}>
-                              <label className="block text-xs font-semibold text-navy/70 mb-2">{field.label}</label>
-                              <textarea
-                                value={profileDraft[field.key as keyof ProfileDraft]}
-                                onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
-                                placeholder={field.placeholder}
-                                rows={2}
-                                className="w-full rounded-lg border border-navy/20 px-3 py-2 text-sm text-navy"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-
-                      <div className="flex flex-wrap items-center gap-3">
-                        <Button onClick={saveProfile} className="bg-teal hover:bg-teal/90 text-white">
-                          <Save className="mr-2 h-4 w-4" />
-                          {profileSaveStatus === "saving" ? "Saving..." : "Save profile"}
-                        </Button>
-                        {profileSaveStatus === "saved" && (
-                          <span className="text-sm text-teal">Saved to this session.</span>
-                        )}
-                        {profileSaveStatus === "error" && (
-                          <span className="text-sm text-coral">Could not save profile.</span>
-                        )}
-                      </div>
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </Card>
-          </div>
-        </section>
-
-        <section className="container mx-auto px-4 pb-16">
-          <div className="max-w-5xl mx-auto">
-            <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
-              <Accordion type="single" collapsible>
-                <AccordionItem value="example-responses" className="border-navy/10">
-                  <AccordionTrigger className="text-navy py-3 text-base">
-                    <span className="font-serif text-xl font-bold">Example responses</span>
-                  </AccordionTrigger>
-                  <AccordionContent className="pt-2">
-                    <div className="space-y-4">
-                      {exampleResponses.map((item, idx) => (
-                        <div key={idx} className="rounded-lg border border-navy/15 bg-white/70 p-4">
-                          <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Student</p>
-                          <p className="text-navy font-medium mb-3">{item.question}</p>
-                          <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Evi</p>
-                          <p className="text-navy/80 text-sm leading-relaxed">{item.response}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </Card>
-          </div>
-        </section>
-
-        <section className="container mx-auto px-4 pb-16">
-          <div className="max-w-5xl mx-auto">
-            <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm animate-fade-in delay-100">
-              <Accordion type="single" collapsible>
-                <AccordionItem value="how-i-can-help" className="border-navy/10">
-                  <AccordionTrigger className="text-navy py-3 text-base">
-                    <span className="font-serif text-xl font-bold">How I can help</span>
-                  </AccordionTrigger>
-                  <AccordionContent className="pt-2">
-                    <div className="prose prose-lg max-w-none text-navy/90 leading-relaxed">
-                      <p className="mb-4">
-                        Hi there, welcome to the LBS Community! My name is Evi - Your LBS Healthcare Companion.
-                      </p>
-                      <p className="mb-4">
-                        Now that you have made it to London, I am sure you have a lot of questions about navigating the
-                        NHS and LBS wellbeing services.
-                      </p>
-                      <p className="mb-4">Feel free to start with one of the examples below to get you oriented.</p>
-                      <ul className="space-y-2 mb-4">
-                        <li>Better understand when and how to use NHS services (GP, NHS 111, A&amp;E, and more!)</li>
-                        <li>Locate mental health or wellbeing support</li>
-                        <li>Get more information about preventative-care guidance</li>
-                      </ul>
-                      <p className="text-teal font-semibold">
-                        Or, type "onboarding" at any time, and I will ask a few brief questions to get to know you better.
-                      </p>
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
+                  </div>
+                </TabsContent>
+              </Tabs>
             </Card>
           </div>
         </section>

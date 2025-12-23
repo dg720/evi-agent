@@ -7,7 +7,7 @@ and a Next.js frontend. Use this file as the first stop for context before makin
 - Backend: `backend/` FastAPI service with an OpenAI-powered agent and tool calls.
 - Frontend: `evi-healthcare-companion/` Next.js app (App Router) and UI.
 - API proxy: Next.js API routes forward requests to the backend service.
-- Deployment: `render.yaml` defines Render services.
+- Deployment: Railway CLI guide in `docs/deploy/RAILWAY_CLI_DEPLOY.md`.
 
 ## Core runtime flow
 1) UI sends messages to `evi-healthcare-companion/app/api/chat/route.ts`.
@@ -25,7 +25,6 @@ Sessions are stored in memory in `backend/main.py`. There is no database; restar
 - `backend/prompts.py`: System prompt rules and intro text.
 - `backend/config.py`: Onboarding questions, trigger phrases, and canonical links.
 - `backend/extract.py`: Profile tag extraction/stripping helpers.
-- `backend/streamlit_app.py`: Legacy Streamlit UI (optional).
 
 Important behavior notes:
 - Onboarding is deterministic and only starts on explicit triggers.
@@ -75,7 +74,7 @@ Frontend unit tests:
 - `npm test`
 
 ## Deployment
-- Render blueprint: `render.yaml`
+- Railway CLI: `docs/deploy/RAILWAY_CLI_DEPLOY.md`
 - Set `OPENAI_API_KEY` for backend service.
 - Set `NEXT_PUBLIC_API_BASE_URL` (or `BACKEND_API_BASE_URL`) for frontend service.
 
