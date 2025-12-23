@@ -101,4 +101,117 @@ export const knowledgeBase: KnowledgeArticle[] = [
       { title: "NHS services guide", url: "https://www.nhs.uk/using-the-nhs/nhs-services/" },
     ],
   },
+  {
+    id: "international-students-access",
+    title: "International students and NHS access",
+    summary: "Student-focused guidance on NHS access, eligibility, and what to expect.",
+    content:
+      "International students can access NHS services depending on visa status, length of stay, and residency.\n\nUKCISA provides student-focused guidance on healthcare entitlement and the NHS surcharge. If you are unsure about eligibility, check the latest guidance or ask your university support team.",
+    version: "1.0.0",
+    updatedAt: "2025-01-10",
+    tags: ["students", "eligibility", "nhs"],
+    sources: [
+      {
+        title: "UKCISA: Health and healthcare",
+        url: "https://www.ukcisa.org.uk/Information--Advice/Studying--living-in-the-UK/Health-and-healthcare",
+      },
+    ],
+  },
+  {
+    id: "pharmacy-services",
+    title: "Pharmacy services and minor illness care",
+    summary: "What pharmacists can help with and when to use a pharmacy first.",
+    content:
+      "Pharmacists can provide advice for minor illnesses, self-care guidance, and over-the-counter treatments.\n\nIf symptoms are mild and you can function normally, a pharmacy is often the quickest route. If symptoms worsen or you are unsure, use NHS 111 or contact a GP.",
+    version: "1.0.0",
+    updatedAt: "2025-01-10",
+    tags: ["pharmacy", "self-care", "urgent"],
+    sources: [{ title: "Pharmacies", url: "https://www.nhs.uk/nhs-services/pharmacies/" }],
+  },
+  {
+    id: "nhs-dentist",
+    title: "Finding an NHS dentist",
+    summary: "How to find an NHS dentist and what to expect for dental care.",
+    content:
+      "Dental services in the UK are separate from GP services and can involve charges.\n\nUse the NHS dentist search to find a practice near you and ask about availability. For urgent dental problems, NHS 111 can advise where to go.",
+    version: "1.0.0",
+    updatedAt: "2025-01-10",
+    tags: ["dentist", "costs", "services"],
+    sources: [
+      {
+        title: "How to find an NHS dentist",
+        url: "https://www.nhs.uk/nhs-services/dentists/how-to-find-an-nhs-dentist/",
+      },
+      { title: "NHS 111", url: "https://111.nhs.uk/" },
+    ],
+  },
+  {
+    id: "sexual-health",
+    title: "Sexual health services",
+    summary: "Where to access confidential sexual health advice and clinics.",
+    content:
+      "Sexual health services are confidential and often free. You can access testing, contraception, and advice through local sexual health clinics.\n\nUse the NHS service finder to locate a clinic near you.",
+    version: "1.0.0",
+    updatedAt: "2025-01-10",
+    tags: ["sexual-health", "services", "students"],
+    sources: [
+      { title: "Sexual health services", url: "https://www.nhs.uk/service-search/sexual-health" },
+    ],
+  },
+  {
+    id: "vaccinations",
+    title: "Vaccinations and immunisations",
+    summary: "General NHS vaccination guidance and how to stay up to date.",
+    content:
+      "Vaccinations protect you and those around you. You can discuss recommended vaccines with your GP or local clinic.\n\nNHS guidance lists routine and seasonal vaccines and eligibility criteria.",
+    version: "1.0.0",
+    updatedAt: "2025-01-10",
+    tags: ["vaccinations", "prevention", "students"],
+    sources: [{ title: "Vaccinations", url: "https://www.nhs.uk/vaccinations/" }],
+  },
+  {
+    id: "prescription-savings",
+    title: "Saving money on prescriptions",
+    summary: "How prescription charges work and ways to reduce costs.",
+    content:
+      "Prescription charges apply in England, but you may be eligible for exemptions or cost-saving options.\n\nIf you need multiple prescriptions, a prepayment certificate can reduce costs. Check NHS guidance for the latest details.",
+    version: "1.0.0",
+    updatedAt: "2025-01-10",
+    tags: ["prescriptions", "costs", "eligibility"],
+    sources: [
+      {
+        title: "Prescription prepayment certificate (PPC)",
+        url: "https://www.nhs.uk/nhs-services/prescriptions/save-money-with-a-prescription-prepayment-certificate-ppc/",
+      },
+    ],
+  },
+  {
+    id: "fit-note",
+    title: "Sick notes and fit notes",
+    summary: "When you need a fit note and how to request one.",
+    content:
+      "If you are off sick from work or study for more than 7 days, you may need a fit note from a GP or hospital.\n\nNHS guidance explains when a fit note is required and how to request one.",
+    version: "1.0.0",
+    updatedAt: "2025-01-10",
+    tags: ["gp", "work", "students"],
+    sources: [
+      { title: "Getting a fit note", url: "https://www.nhs.uk/nhs-services/gps/getting-a-fit-note/" },
+    ],
+  },
+  {
+    id: "lbs-student-support",
+    title: "LBS student support and wellbeing",
+    summary: "How to access LBS wellbeing services and student support.",
+    content:
+      "LBS provides student support services, including wellbeing and mental health resources.\n\nUse LBS support pages for up-to-date services, referrals, and contact details.",
+    version: "1.0.0",
+    updatedAt: "2025-01-10",
+    tags: ["students", "wellbeing", "lbs"],
+    sources: [
+      {
+        title: "LBS student support",
+        url: "https://www.london.edu/masters-experience/student-support",
+      },
+    ],
+  },
 ]

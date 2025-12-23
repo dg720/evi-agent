@@ -1,9 +1,17 @@
 "use client"
 
-import Link from "next/link"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import {
   MessageCircle,
   Shield,
@@ -66,6 +74,14 @@ type ChatSession = {
   activeStepIndex: number
 }
 
+type TrustItem = {
+  key: string
+  title: string
+  description: string
+  sourceLabel: string
+  sourceUrl: string
+}
+
 const initialMessages: ChatMessage[] = [
   {
     role: "assistant",
@@ -77,11 +93,60 @@ const roadmapDefaults: RoadmapStep[] = [
   { key: "profile", label: "Build your profile", prompt: "Start onboarding" },
   { key: "eligibility", label: "Check NHS eligibility", prompt: "What NHS services am I eligible for?" },
   { key: "gp-register", label: "Register with a GP", prompt: "How do I register with a GP?" },
-  { key: "care-options", label: "Understand care options", prompt: "Explain GP vs pharmacy vs NHS 111 vs A&E." },
-  { key: "urgent-emergency", label: "Know urgent vs emergency care", prompt: "When should I use NHS 111 vs A&E?" },
+  { key: "triage", label: "Seek the right medical advice", prompt: "I need to figure out the right service for my symptoms." },
 ]
 
 const SESSION_STORAGE_KEY = "evi_chat_sessions_v1"
+
+const trustItems: TrustItem[] = [
+  {
+    key: "how",
+    title: "How Evi works",
+    description:
+      "Evi is an informational assistant that helps international students navigate UK healthcare services. It provides guidance on which NHS service to use, how to register with a GP, and how to access urgent support. Evi uses a rule-based onboarding flow and a triage tool aligned to NHS 111 guidance. It does not diagnose or provide treatment.",
+    sourceLabel: "NHS services guide",
+    sourceUrl: "https://www.nhs.uk/using-the-nhs/nhs-services/",
+  },
+  {
+    key: "boundaries",
+    title: "Clinical boundaries",
+    description:
+      "Evi is not a clinician and does not provide diagnoses, prescriptions, or treatment plans. If you are unsure about symptoms or need medical advice, Evi will route you to the most appropriate NHS service such as NHS 111, a GP, or A&E.",
+    sourceLabel: "NHS 111",
+    sourceUrl: "https://111.nhs.uk/",
+  },
+  {
+    key: "emergency",
+    title: "Emergency handling",
+    description:
+      "If you are in immediate danger, call 999. Evi will flag emergency symptoms and direct you to the right service, but it cannot monitor your safety or act on your behalf.",
+    sourceLabel: "NHS urgent and emergency care",
+    sourceUrl: "https://www.nhs.uk/nhs-services/urgent-and-emergency-care-services/",
+  },
+  {
+    key: "privacy",
+    title: "Data and privacy",
+    description:
+      "Evi stores chat history in your browser so you can revisit past conversations. No clinical records are created. If you share personal information, it is used to personalize guidance and help you find relevant services. You can clear sessions at any time.",
+    sourceLabel: "Your NHS data matters",
+    sourceUrl: "https://www.nhs.uk/your-nhs-data-matters/",
+  },
+]
+
+const onboardingQuestionSnippets = [
+  "what's your name",
+  "what is your name",
+  "what's your age range",
+  "how long will you stay",
+  "what's your london postcode",
+  "postcode / area",
+  "do you hold a uk visa",
+  "do you already have a registered gp",
+  "any long-term health conditions",
+  "do you take any regular medications",
+  "lifestyle area you want to improve",
+  "how has your mental wellbeing been recently",
+]
 
 const profileFields = [
   { key: "name", label: "Name", placeholder: "Optional" },
@@ -173,7 +238,11 @@ const buildSessionTitle = (messages: ChatMessage[]) => {
 }
 
 const deriveTags = (messages: ChatMessage[]) => {
-  const text = messages.map((msg) => msg.message).join(" ").toLowerCase()
+  const text = messages
+    .filter((msg) => msg.role === "user")
+    .map((msg) => msg.message)
+    .join(" ")
+    .toLowerCase()
   const tags: string[] = []
   const rules: Array<[string, string[]]> = [
     ["gp", ["gp", "general practitioner", "register"]],
@@ -204,10 +273,9 @@ const inferCompletedSteps = (messages: ChatMessage[], profile: ProfileDraft | nu
   if (hasProfile) completed.push(0)
   if (text.includes("eligible") || text.includes("eligibility")) completed.push(1)
   if (text.includes("register") && text.includes("gp")) completed.push(2)
-  if (text.includes("pharmacy") || text.includes("111") || text.includes("a&e")) completed.push(3)
-  if (text.includes("urgent") && text.includes("emergency")) completed.push(4)
-  return Array.from(new Set(completed))
-}
+    if (text.includes("pharmacy") || text.includes("111") || text.includes("a&e") || text.includes("triage")) completed.push(3)
+    return Array.from(new Set(completed))
+  }
 
 const roadmapStatusForIndex = (index: number, completedSteps: number[]): RoadmapStatus => {
   if (completedSteps.includes(index)) return "completed"
@@ -271,6 +339,12 @@ const relatedArticlesForTags = (tags: string[]) => {
   }
   const ids = tags.flatMap((tag) => map[tag] || [])
   return knowledgeBase.filter((article) => ids.includes(article.id))
+}
+
+const isOnboardingPrompt = (userInput: string, assistantReply: string) => {
+  const combined = `${userInput} ${assistantReply}`.toLowerCase()
+  if (combined.includes("onboarding")) return true
+  return onboardingQuestionSnippets.some((snippet) => combined.includes(snippet))
 }
 
 export default function Home() {
@@ -593,7 +667,11 @@ export default function Home() {
         }
       }
       if (Array.isArray(payload.prompt_suggestions) && payload.prompt_suggestions.length > 0) {
-        setQuickReplies(payload.prompt_suggestions.slice(0, 4))
+        if (isOnboardingPrompt(trimmed, payload.reply)) {
+          setQuickReplies([])
+        } else {
+          setQuickReplies(payload.prompt_suggestions.slice(0, 4))
+        }
       } else {
         const tags = deriveTags(nextMessages)
         const related = relatedArticlesForTags(tags)
@@ -601,15 +679,19 @@ export default function Home() {
         const nextRoadmapIndex = roadmapSteps.findIndex(
           (_, index) => roadmapStatusForIndex(index, completedSteps) === "available"
         )
-        const suggestions = [
-          ...(profileMissing ? ["Start onboarding"] : []),
-          ...(nextRoadmapIndex >= 0 ? [roadmapSteps[nextRoadmapIndex].prompt] : []),
-          ...tags.includes("gp") ? ["Find a GP near me", "What documents do I need?"] : [],
-          ...tags.includes("111") ? ["Is this urgent?", "Where should I go?"] : [],
-          ...tags.includes("a&e") ? ["What counts as an emergency?", "Should I call 111?"] : [],
-          ...related.map((article) => `Read: ${article.title}`),
-        ]
-        setQuickReplies(Array.from(new Set(suggestions)).slice(0, 4))
+        if (isOnboardingPrompt(trimmed, payload.reply)) {
+          setQuickReplies([])
+        } else {
+          const suggestions = [
+            ...(profileMissing ? ["Start onboarding"] : []),
+            ...(nextRoadmapIndex >= 0 ? [roadmapSteps[nextRoadmapIndex].prompt] : []),
+            ...tags.includes("gp") ? ["Find a GP near me", "What documents do I need?"] : [],
+            ...tags.includes("111") ? ["Is this urgent?", "Where should I go?"] : [],
+            ...tags.includes("a&e") ? ["What counts as an emergency?", "Should I call 111?"] : [],
+            ...related.map((article) => `Read: ${article.title}`),
+          ]
+          setQuickReplies(Array.from(new Set(suggestions)).slice(0, 4))
+        }
       }
     } catch (error) {
       const isAbort = error instanceof Error && error.name === "AbortError"
@@ -675,7 +757,7 @@ export default function Home() {
         </section>
 
         <section className="container mx-auto px-4 pb-16">
-          <div className="max-w-3xl mx-auto">
+          <div className="max-w-2xl mx-auto">
             <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">
               Your UK Healthcare Roadmap
             </h3>
@@ -731,7 +813,7 @@ export default function Home() {
 
         <section ref={chatSectionRef} className="container mx-auto px-4 pb-12">
           <div className="max-w-6xl mx-auto">
-            <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="flex flex-col gap-8">
               <div>
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
                   <h3 className="font-serif text-2xl font-bold text-sand text-center sm:text-left">Live chat</h3>
@@ -825,7 +907,7 @@ export default function Home() {
                 </Card>
               </div>
 
-              <aside className="space-y-6">
+              <div className="grid gap-6 md:grid-cols-3">
                 <Card className="bg-sand/95 border-sand/50 p-5 shadow-2xl backdrop-blur-sm">
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="text-sm font-semibold text-navy">Saved profile</h4>
@@ -891,7 +973,7 @@ export default function Home() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-navy/20 text-navy"
+                      className="border-navy/20 text-sand hover:text-white"
                       onClick={() => exportConversation("txt")}
                     >
                       TXT
@@ -899,7 +981,7 @@ export default function Home() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-navy/20 text-navy"
+                      className="border-navy/20 text-sand hover:text-white"
                       onClick={() => exportConversation("md")}
                     >
                       Markdown
@@ -907,35 +989,14 @@ export default function Home() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-navy/20 text-navy"
+                      className="border-navy/20 text-sand hover:text-white"
                       onClick={() => exportConversation("pdf")}
                     >
                       PDF
                     </Button>
                   </div>
                 </Card>
-
-                <Card className="bg-sand/95 border-sand/50 p-5 shadow-2xl backdrop-blur-sm">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Shield className="h-4 w-4 text-teal" />
-                    <h4 className="text-sm font-semibold text-navy">Trust & governance</h4>
-                  </div>
-                  <div className="space-y-2 text-sm text-navy/70">
-                    <Link className="block hover:text-teal" href="/how-evi-works">
-                      How Evi works
-                    </Link>
-                    <Link className="block hover:text-teal" href="/clinical-boundaries">
-                      Clinical boundaries
-                    </Link>
-                    <Link className="block hover:text-teal" href="/emergency-handling">
-                      Emergency handling
-                    </Link>
-                    <Link className="block hover:text-teal" href="/data-privacy">
-                      Data and privacy
-                    </Link>
-                  </div>
-                </Card>
-              </aside>
+              </div>
             </div>
           </div>
         </section>
@@ -1064,117 +1125,145 @@ export default function Home() {
 
         <section ref={howItWorksRef} className="container mx-auto px-4 pb-16">
           <div className="max-w-4xl mx-auto">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-              <h3 className="font-serif text-2xl font-bold text-sand">How it works</h3>
-              <span className="text-sm text-sand/70">{profileLabel}</span>
-            </div>
             <Card className="bg-sand/95 border-sand/50 p-6 md:p-8 shadow-2xl backdrop-blur-sm">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h4 className="font-serif text-xl font-bold text-navy">Onboarding profile</h4>
-                  <p className="text-navy/70 mt-2">
-                    Edit these details any time. When onboarding finishes, this view updates automatically.
-                  </p>
-                </div>
-                <div className="text-xs uppercase tracking-wide text-navy/50">Editable</div>
-              </div>
-
-              <details className="mt-6 group" open>
-                <summary className="cursor-pointer text-sm font-semibold text-teal">
-                  Profile details
-                </summary>
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {profileFields.map((field) => (
-                    <div key={field.key}>
-                      <label className="block text-xs font-semibold text-navy/70 mb-2">{field.label}</label>
-                      <input
-                        type="text"
-                        value={profileDraft[field.key as keyof ProfileDraft]}
-                        onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
-                        placeholder={field.placeholder}
-                        className="w-full rounded-lg border border-navy/20 px-3 py-2 text-sm text-navy"
-                      />
+              <Accordion type="single" collapsible>
+                <AccordionItem value="how-it-works" className="border-navy/10">
+                  <AccordionTrigger className="text-navy">
+                    <div className="flex w-full items-center justify-between gap-4">
+                      <span className="font-serif text-xl font-bold">How it works</span>
+                      <span className="text-xs text-navy/50">{profileLabel}</span>
                     </div>
-                  ))}
-                </div>
-              </details>
+                  </AccordionTrigger>
+                  <AccordionContent className="pt-2">
+                    <div className="space-y-6">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h4 className="font-serif text-lg font-bold text-navy">Onboarding profile</h4>
+                          <p className="text-navy/70 mt-2">
+                            Edit these details any time. When onboarding finishes, this view updates automatically.
+                          </p>
+                        </div>
+                        <div className="text-xs uppercase tracking-wide text-navy/50">Editable</div>
+                      </div>
 
-              <details className="mt-5">
-                <summary className="cursor-pointer text-sm font-semibold text-teal">
-                  Additional context
-                </summary>
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {profileTextAreas.map((field) => (
-                    <div key={field.key}>
-                      <label className="block text-xs font-semibold text-navy/70 mb-2">{field.label}</label>
-                      <textarea
-                        value={profileDraft[field.key as keyof ProfileDraft]}
-                        onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
-                        placeholder={field.placeholder}
-                        rows={2}
-                        className="w-full rounded-lg border border-navy/20 px-3 py-2 text-sm text-navy"
-                      />
+                      <details className="group" open>
+                        <summary className="cursor-pointer text-sm font-semibold text-teal">
+                          Profile details
+                        </summary>
+                        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {profileFields.map((field) => (
+                            <div key={field.key}>
+                              <label className="block text-xs font-semibold text-navy/70 mb-2">{field.label}</label>
+                              <input
+                                type="text"
+                                value={profileDraft[field.key as keyof ProfileDraft]}
+                                onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
+                                placeholder={field.placeholder}
+                                className="w-full rounded-lg border border-navy/20 px-3 py-2 text-sm text-navy"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+
+                      <details>
+                        <summary className="cursor-pointer text-sm font-semibold text-teal">
+                          Additional context
+                        </summary>
+                        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {profileTextAreas.map((field) => (
+                            <div key={field.key}>
+                              <label className="block text-xs font-semibold text-navy/70 mb-2">{field.label}</label>
+                              <textarea
+                                value={profileDraft[field.key as keyof ProfileDraft]}
+                                onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
+                                placeholder={field.placeholder}
+                                rows={2}
+                                className="w-full rounded-lg border border-navy/20 px-3 py-2 text-sm text-navy"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button onClick={saveProfile} className="bg-teal hover:bg-teal/90 text-white">
+                          <Save className="mr-2 h-4 w-4" />
+                          {profileSaveStatus === "saving" ? "Saving..." : "Save profile"}
+                        </Button>
+                        {profileSaveStatus === "saved" && (
+                          <span className="text-sm text-teal">Saved to this session.</span>
+                        )}
+                        {profileSaveStatus === "error" && (
+                          <span className="text-sm text-coral">Could not save profile.</span>
+                        )}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </details>
-
-              <div className="flex flex-wrap items-center gap-3 mt-6">
-                <Button onClick={saveProfile} className="bg-teal hover:bg-teal/90 text-white">
-                  <Save className="mr-2 h-4 w-4" />
-                  {profileSaveStatus === "saving" ? "Saving..." : "Save profile"}
-                </Button>
-                {profileSaveStatus === "saved" && (
-                  <span className="text-sm text-teal">Saved to this session.</span>
-                )}
-                {profileSaveStatus === "error" && (
-                  <span className="text-sm text-coral">Could not save profile.</span>
-                )}
-              </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </Card>
           </div>
         </section>
 
         <section className="container mx-auto px-4 pb-16">
           <div className="max-w-4xl mx-auto">
-            <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">Example responses</h3>
-            <Card className="bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm">
-              <div className="space-y-4">
-                {exampleResponses.map((item, idx) => (
-                  <div key={idx} className="rounded-lg border border-navy/15 bg-white/70 p-4">
-                    <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Student</p>
-                    <p className="text-navy font-medium mb-3">{item.question}</p>
-                    <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Evi</p>
-                    <p className="text-navy/80 text-sm leading-relaxed">{item.response}</p>
-                  </div>
-                ))}
-              </div>
+            <Card className="bg-sand/95 border-sand/50 p-6 md:p-8 shadow-2xl backdrop-blur-sm">
+              <Accordion type="single" collapsible>
+                <AccordionItem value="example-responses" className="border-navy/10">
+                  <AccordionTrigger className="text-navy">
+                    <span className="font-serif text-xl font-bold">Example responses</span>
+                  </AccordionTrigger>
+                  <AccordionContent className="pt-2">
+                    <div className="space-y-4">
+                      {exampleResponses.map((item, idx) => (
+                        <div key={idx} className="rounded-lg border border-navy/15 bg-white/70 p-4">
+                          <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Student</p>
+                          <p className="text-navy font-medium mb-3">{item.question}</p>
+                          <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Evi</p>
+                          <p className="text-navy/80 text-sm leading-relaxed">{item.response}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </Card>
           </div>
         </section>
 
         <section className="container mx-auto px-4 pb-16">
-          <Card className="max-w-4xl mx-auto bg-sand/95 border-sand/50 p-8 md:p-10 shadow-2xl backdrop-blur-sm animate-fade-in delay-100">
-            <h2 className="font-serif text-3xl font-bold text-navy mb-6">How I can help</h2>
-            <div className="prose prose-lg max-w-none text-navy/90 leading-relaxed">
-              <p className="mb-4">
-                Hi there, welcome to the LBS Community! My name is Evi - Your LBS Healthcare Companion.
-              </p>
-              <p className="mb-4">
-                Now that you have made it to London, I am sure you have a lot of questions about navigating the NHS and
-                LBS wellbeing services.
-              </p>
-              <p className="mb-4">Feel free to start with one of the examples below to get you oriented.</p>
-              <ul className="space-y-2 mb-4">
-                <li>Better understand when and how to use NHS services (GP, NHS 111, A&amp;E, and more!)</li>
-                <li>Locate mental health or wellbeing support</li>
-                <li>Get more information about preventative-care guidance</li>
-              </ul>
-              <p className="text-teal font-semibold">
-                Or, type "onboarding" at any time, and I will ask a few brief questions to get to know you better.
-              </p>
-            </div>
-          </Card>
+          <div className="max-w-4xl mx-auto">
+            <Card className="bg-sand/95 border-sand/50 p-6 md:p-8 shadow-2xl backdrop-blur-sm animate-fade-in delay-100">
+              <Accordion type="single" collapsible>
+                <AccordionItem value="how-i-can-help" className="border-navy/10">
+                  <AccordionTrigger className="text-navy">
+                    <span className="font-serif text-xl font-bold">How I can help</span>
+                  </AccordionTrigger>
+                  <AccordionContent className="pt-2">
+                    <div className="prose prose-lg max-w-none text-navy/90 leading-relaxed">
+                      <p className="mb-4">
+                        Hi there, welcome to the LBS Community! My name is Evi - Your LBS Healthcare Companion.
+                      </p>
+                      <p className="mb-4">
+                        Now that you have made it to London, I am sure you have a lot of questions about navigating the
+                        NHS and LBS wellbeing services.
+                      </p>
+                      <p className="mb-4">Feel free to start with one of the examples below to get you oriented.</p>
+                      <ul className="space-y-2 mb-4">
+                        <li>Better understand when and how to use NHS services (GP, NHS 111, A&amp;E, and more!)</li>
+                        <li>Locate mental health or wellbeing support</li>
+                        <li>Get more information about preventative-care guidance</li>
+                      </ul>
+                      <p className="text-teal font-semibold">
+                        Or, type "onboarding" at any time, and I will ask a few brief questions to get to know you better.
+                      </p>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </Card>
+          </div>
         </section>
 
         <section className="container mx-auto px-4 pb-16">
@@ -1194,7 +1283,44 @@ export default function Home() {
         </section>
 
         <footer className="container mx-auto px-4 pb-12">
-          <div className="max-w-4xl mx-auto text-center">
+          <div className="max-w-4xl mx-auto">
+            <div className="flex flex-col items-center gap-3 mb-6">
+              <div className="flex items-center gap-2 text-sand/80">
+                <Shield className="h-4 w-4 text-sand/60" />
+                <span className="text-sm font-semibold">Trust &amp; governance</span>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-3 text-sm text-sand/70">
+                {trustItems.map((item) => (
+                  <Dialog key={`footer-${item.key}`}>
+                    <DialogTrigger asChild>
+                      <button className="hover:text-sand transition-colors">
+                        {item.title}
+                      </button>
+                    </DialogTrigger>
+                    <DialogContent className="bg-sand text-navy border-sand/60">
+                      <DialogHeader>
+                        <DialogTitle className="font-serif">{item.title}</DialogTitle>
+                        <DialogDescription className="text-navy/70">
+                          {item.description}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="text-xs text-navy/60">
+                        Source:{" "}
+                        <a
+                          className="underline"
+                          href={item.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {item.sourceLabel}
+                        </a>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                ))}
+              </div>
+            </div>
+            <div className="text-center">
             <div className="flex items-center justify-center gap-2 mb-4">
               <Shield className="h-5 w-5 text-sand/60" />
               <p className="text-sand/80 leading-relaxed">
@@ -1202,6 +1328,7 @@ export default function Home() {
               </p>
             </div>
             <p className="text-sand/60 text-sm">(c) 2025 LBS Healthcare Companion</p>
+            </div>
           </div>
         </footer>
       </div>
