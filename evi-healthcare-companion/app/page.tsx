@@ -20,8 +20,6 @@ import {
   AlertCircle,
   RotateCcw,
   Save,
-  History,
-  Download,
   BookOpen,
   CheckCircle2,
   Lock,
@@ -832,6 +830,14 @@ export default function Home() {
                       variant="outline"
                       size="sm"
                       className="border-sand/30 text-sand hover:bg-sand/10 bg-transparent"
+                      onClick={() => exportConversation("txt")}
+                    >
+                      Export .txt
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-sand/30 text-sand hover:bg-sand/10 bg-transparent"
                       onClick={startNewChat}
                     >
                       <RotateCcw className="mr-1 h-4 w-4" />
@@ -962,84 +968,16 @@ export default function Home() {
                   )}
                 </Card>
               </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
-                  <div className="flex items-center gap-2 mb-2">
-                    <History className="h-4 w-4 text-teal" />
-                    <h4 className="text-sm font-semibold text-navy">Chat history</h4>
-                  </div>
-                  <div className="space-y-2 max-h-[160px] overflow-y-auto pr-2">
-                    {sessions.length === 0 ? (
-                      <p className="text-xs text-navy/60">No saved sessions yet.</p>
-                    ) : (
-                      sessions.map((session) => (
-                        <button
-                          key={session.id}
-                          className={`w-full text-left rounded-md border px-2.5 py-2 transition-colors ${
-                            session.id === activeSessionKey
-                              ? "border-teal bg-teal/10 text-navy"
-                              : "border-navy/10 text-navy/70 hover:border-teal/60"
-                          }`}
-                          onClick={() => loadSession(session)}
-                        >
-                          <p className="text-sm font-semibold">{session.title}</p>
-                          <p className="text-[11px] text-navy/50">{formatTimestamp(session.updatedAt)}</p>
-                          <p className="text-[11px] text-navy/50 mt-1">
-                            Tags: {session.tags.join(", ") || "None"}
-                          </p>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </Card>
-
-                <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Download className="h-4 w-4 text-teal" />
-                    <h4 className="text-sm font-semibold text-navy">Export</h4>
-                  </div>
-                  <p className="text-xs text-navy/60 mb-2">
-                    Non-clinical disclaimer included.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-navy/20 text-sand hover:text-white h-8 px-3"
-                      onClick={() => exportConversation("txt")}
-                    >
-                      TXT
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-navy/20 text-sand hover:text-white h-8 px-3"
-                      onClick={() => exportConversation("md")}
-                    >
-                      MD
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-navy/20 text-sand hover:text-white h-8 px-3"
-                      onClick={() => exportConversation("pdf")}
-                    >
-                      PDF
-                    </Button>
-                  </div>
-                </Card>
-              </div>
             </div>
           </div>
         </section>
 
         <section ref={knowledgeRef} className="container mx-auto px-4 pb-16">
           <div className="max-w-5xl mx-auto">
-            <Card className="bg-sand/95 border-sand/50 p-6 shadow-2xl backdrop-blur-sm">
+            <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
               <Accordion type="single" collapsible>
                 <AccordionItem value="knowledge-base" className="border-navy/10">
-                  <AccordionTrigger className="text-navy">
+                  <AccordionTrigger className="text-navy py-3 text-base">
                     <div className="flex w-full flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <span className="font-serif text-xl font-bold">Knowledge base</span>
                       <div
@@ -1121,12 +1059,51 @@ export default function Home() {
           </div>
         </section>
 
+        <section className="container mx-auto px-4 pb-16">
+          <div className="max-w-5xl mx-auto">
+            <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
+              <Accordion type="single" collapsible>
+                <AccordionItem value="chat-history" className="border-navy/10">
+                  <AccordionTrigger className="text-navy py-3 text-base">
+                    <span className="font-serif text-xl font-bold">Chat history</span>
+                  </AccordionTrigger>
+                  <AccordionContent className="pt-2">
+                    <div className="space-y-2 max-h-[220px] overflow-y-auto pr-2">
+                      {sessions.length === 0 ? (
+                        <p className="text-xs text-navy/60">No saved sessions yet.</p>
+                      ) : (
+                        sessions.map((session) => (
+                          <button
+                            key={session.id}
+                            className={`w-full text-left rounded-md border px-2.5 py-2 transition-colors ${
+                              session.id === activeSessionKey
+                                ? "border-teal bg-teal/10 text-navy"
+                                : "border-navy/10 text-navy/70 hover:border-teal/60"
+                            }`}
+                            onClick={() => loadSession(session)}
+                          >
+                            <p className="text-sm font-semibold">{session.title}</p>
+                            <p className="text-[11px] text-navy/50">{formatTimestamp(session.updatedAt)}</p>
+                            <p className="text-[11px] text-navy/50 mt-1">
+                              Tags: {session.tags.join(", ") || "None"}
+                            </p>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </Card>
+          </div>
+        </section>
+
         <section ref={howItWorksRef} className="container mx-auto px-4 pb-16">
-          <div className="max-w-4xl mx-auto">
-            <Card className="bg-sand/95 border-sand/50 p-6 md:p-8 shadow-2xl backdrop-blur-sm">
+          <div className="max-w-5xl mx-auto">
+            <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
               <Accordion type="single" collapsible>
                 <AccordionItem value="how-it-works" className="border-navy/10">
-                  <AccordionTrigger className="text-navy">
+                  <AccordionTrigger className="text-navy py-3 text-base">
                     <div className="flex w-full items-center justify-between gap-4">
                       <span className="font-serif text-xl font-bold">Edit your profile</span>
                       <span className="text-xs text-navy/50">{profileLabel}</span>
@@ -1205,11 +1182,11 @@ export default function Home() {
         </section>
 
         <section className="container mx-auto px-4 pb-16">
-          <div className="max-w-4xl mx-auto">
-            <Card className="bg-sand/95 border-sand/50 p-6 md:p-8 shadow-2xl backdrop-blur-sm">
+          <div className="max-w-5xl mx-auto">
+            <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
               <Accordion type="single" collapsible>
                 <AccordionItem value="example-responses" className="border-navy/10">
-                  <AccordionTrigger className="text-navy">
+                  <AccordionTrigger className="text-navy py-3 text-base">
                     <span className="font-serif text-xl font-bold">Example responses</span>
                   </AccordionTrigger>
                   <AccordionContent className="pt-2">
@@ -1231,11 +1208,11 @@ export default function Home() {
         </section>
 
         <section className="container mx-auto px-4 pb-16">
-          <div className="max-w-4xl mx-auto">
-            <Card className="bg-sand/95 border-sand/50 p-6 md:p-8 shadow-2xl backdrop-blur-sm animate-fade-in delay-100">
+          <div className="max-w-5xl mx-auto">
+            <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm animate-fade-in delay-100">
               <Accordion type="single" collapsible>
                 <AccordionItem value="how-i-can-help" className="border-navy/10">
-                  <AccordionTrigger className="text-navy">
+                  <AccordionTrigger className="text-navy py-3 text-base">
                     <span className="font-serif text-xl font-bold">How I can help</span>
                   </AccordionTrigger>
                   <AccordionContent className="pt-2">
