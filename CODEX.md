@@ -63,6 +63,17 @@ Frontend:
 - `npm install`
 - `npm run dev`
 
+## Tests
+Backend unit tests:
+- `cd backend`
+- `pip install -r requirements-dev.txt`
+- `pytest`
+
+Frontend unit tests:
+- `cd evi-healthcare-companion`
+- `npm install`
+- `npm test`
+
 ## Deployment
 - Render blueprint: `render.yaml`
 - Set `OPENAI_API_KEY` for backend service.

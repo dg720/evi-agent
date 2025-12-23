@@ -365,6 +365,7 @@ export default function Home() {
   const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
   const [knowledgeSearch, setKnowledgeSearch] = useState("")
   const [selectedArticle, setSelectedArticle] = useState<KnowledgeArticle | null>(null)
+  const [showAllArticles, setShowAllArticles] = useState(false)
 
   const chatSectionRef = useRef<HTMLDivElement>(null)
   const howItWorksRef = useRef<HTMLDivElement>(null)
@@ -496,6 +497,11 @@ export default function Home() {
       )
     })
   }, [knowledgeSearch])
+
+  const visibleArticles = useMemo(() => {
+    if (showAllArticles) return filteredArticles
+    return filteredArticles.slice(0, 6)
+  }, [filteredArticles, showAllArticles])
 
   useEffect(() => {
     if (filteredArticles.length === 0) return
@@ -778,11 +784,12 @@ export default function Home() {
                         : "border-sand/20 bg-sand/5 text-sand/80 hover:border-sand/40"
                     } ${isCompleted ? "opacity-70" : ""}`}
                     onClick={() => {
+                      focusChat()
                       if (!isAvailable) return
                       setActiveStepIndex(idx)
                       sendMessage(step.prompt, idx)
                     }}
-                    disabled={!isAvailable || isThinking}
+                    disabled={isThinking}
                   >
                     <div className="flex items-center gap-4">
                       <div
@@ -905,45 +912,71 @@ export default function Home() {
                     </div>
                   )}
                 </Card>
-              </div>
 
-              <div className="grid gap-6 md:grid-cols-3">
-                <Card className="bg-sand/95 border-sand/50 p-5 shadow-2xl backdrop-blur-sm">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-sm font-semibold text-navy">Saved profile</h4>
-                    <span className="text-xs text-navy/50">{profileLabel}</span>
-                  </div>
-                  {savedProfile ? (
-                    <div className="space-y-2 text-sm text-navy/80">
-                      {profileFields.map((field) => (
-                        <div key={field.key} className="flex justify-between gap-3">
-                          <span className="text-navy/60">{field.label}</span>
-                          <span className="font-medium text-navy">
-                            {savedProfile[field.key as keyof ProfileDraft] || "Not provided"}
-                          </span>
-                        </div>
+                <Card className="bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm mt-8">
+                  {usefulLinks.length === 0 ? (
+                    <p className="text-navy/70 text-center">
+                      Ask a question to see tailored NHS and LBS links here.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {usefulLinks.map((link, idx) => (
+                        <a
+                          key={idx}
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-3 p-4 rounded-lg border-2 border-navy/20 hover:border-teal hover:bg-teal/5 transition-all group animate-fade-in"
+                          style={{ animationDelay: `${idx * 60}ms` }}
+                        >
+                          <MapPin className="h-5 w-5 text-teal flex-shrink-0" />
+                          <span className="text-navy font-medium group-hover:text-teal transition-colors">{link.title}</span>
+                          <ChevronRight className="h-4 w-4 text-navy/40 ml-auto group-hover:text-teal transition-colors" />
+                        </a>
                       ))}
                     </div>
-                  ) : (
-                    <p className="text-sm text-navy/60">
-                      No profile saved yet. Complete onboarding to populate this summary.
-                    </p>
+                  )}
+                  {relatedArticles.length > 0 && (
+                    <div className="mt-6 border-t border-navy/10 pt-6">
+                      <div className="flex items-center gap-2 mb-3 text-navy">
+                        <BookOpen className="h-4 w-4 text-teal" />
+                        <h4 className="text-sm font-semibold">Related knowledge base articles</h4>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {relatedArticles.map((article) => (
+                          <button
+                            key={article.id}
+                            className="rounded-lg border border-navy/20 p-3 text-left hover:border-teal hover:bg-teal/5 transition-all"
+                            onClick={() => {
+                              setSelectedArticle(article)
+                              setKnowledgeSearch(article.title)
+                              knowledgeRef.current?.scrollIntoView({ behavior: "smooth" })
+                            }}
+                          >
+                            <p className="text-sm font-semibold text-navy">{article.title}</p>
+                            <p className="text-xs text-navy/60 mt-1">{article.summary}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </Card>
+              </div>
 
-                <Card className="bg-sand/95 border-sand/50 p-5 shadow-2xl backdrop-blur-sm">
-                  <div className="flex items-center gap-2 mb-3">
+              <div className="grid gap-4 md:grid-cols-2">
+                <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
+                  <div className="flex items-center gap-2 mb-2">
                     <History className="h-4 w-4 text-teal" />
                     <h4 className="text-sm font-semibold text-navy">Chat history</h4>
                   </div>
-                  <div className="space-y-3 max-h-[240px] overflow-y-auto pr-2">
+                  <div className="space-y-2 max-h-[160px] overflow-y-auto pr-2">
                     {sessions.length === 0 ? (
-                      <p className="text-sm text-navy/60">No saved sessions yet.</p>
+                      <p className="text-xs text-navy/60">No saved sessions yet.</p>
                     ) : (
                       sessions.map((session) => (
                         <button
                           key={session.id}
-                          className={`w-full text-left rounded-lg border px-3 py-2 transition-colors ${
+                          className={`w-full text-left rounded-md border px-2.5 py-2 transition-colors ${
                             session.id === activeSessionKey
                               ? "border-teal bg-teal/10 text-navy"
                               : "border-navy/10 text-navy/70 hover:border-teal/60"
@@ -951,7 +984,7 @@ export default function Home() {
                           onClick={() => loadSession(session)}
                         >
                           <p className="text-sm font-semibold">{session.title}</p>
-                          <p className="text-xs text-navy/50">{formatTimestamp(session.updatedAt)}</p>
+                          <p className="text-[11px] text-navy/50">{formatTimestamp(session.updatedAt)}</p>
                           <p className="text-[11px] text-navy/50 mt-1">
                             Tags: {session.tags.join(", ") || "None"}
                           </p>
@@ -961,19 +994,19 @@ export default function Home() {
                   </div>
                 </Card>
 
-                <Card className="bg-sand/95 border-sand/50 p-5 shadow-2xl backdrop-blur-sm">
-                  <div className="flex items-center gap-2 mb-3">
+                <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
+                  <div className="flex items-center gap-2 mb-2">
                     <Download className="h-4 w-4 text-teal" />
-                    <h4 className="text-sm font-semibold text-navy">Export this conversation</h4>
+                    <h4 className="text-sm font-semibold text-navy">Export</h4>
                   </div>
-                  <p className="text-xs text-navy/60 mb-3">
-                    Exports include a non-clinical disclaimer.
+                  <p className="text-xs text-navy/60 mb-2">
+                    Non-clinical disclaimer included.
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-navy/20 text-sand hover:text-white"
+                      className="border-navy/20 text-sand hover:text-white h-8 px-3"
                       onClick={() => exportConversation("txt")}
                     >
                       TXT
@@ -981,15 +1014,15 @@ export default function Home() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-navy/20 text-sand hover:text-white"
+                      className="border-navy/20 text-sand hover:text-white h-8 px-3"
                       onClick={() => exportConversation("md")}
                     >
-                      Markdown
+                      MD
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-navy/20 text-sand hover:text-white"
+                      className="border-navy/20 text-sand hover:text-white h-8 px-3"
                       onClick={() => exportConversation("pdf")}
                     >
                       PDF
@@ -1001,124 +1034,89 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="container mx-auto px-4 pb-16">
-          <div className="max-w-4xl mx-auto">
-            <h3 className="font-serif text-2xl font-bold text-sand mb-6 text-center">Useful links</h3>
-            <Card className="bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm">
-              {usefulLinks.length === 0 ? (
-                <p className="text-navy/70 text-center">
-                  Ask a question to see tailored NHS and LBS links here.
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {usefulLinks.map((link, idx) => (
-                    <a
-                      key={idx}
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-3 p-4 rounded-lg border-2 border-navy/20 hover:border-teal hover:bg-teal/5 transition-all group animate-fade-in"
-                      style={{ animationDelay: `${idx * 60}ms` }}
-                    >
-                      <MapPin className="h-5 w-5 text-teal flex-shrink-0" />
-                      <span className="text-navy font-medium group-hover:text-teal transition-colors">{link.title}</span>
-                      <ChevronRight className="h-4 w-4 text-navy/40 ml-auto group-hover:text-teal transition-colors" />
-                    </a>
-                  ))}
-                </div>
-              )}
-              {relatedArticles.length > 0 && (
-                <div className="mt-6 border-t border-navy/10 pt-6">
-                  <div className="flex items-center gap-2 mb-3 text-navy">
-                    <BookOpen className="h-4 w-4 text-teal" />
-                    <h4 className="text-sm font-semibold">Related knowledge base articles</h4>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {relatedArticles.map((article) => (
-                      <button
-                        key={article.id}
-                        className="rounded-lg border border-navy/20 p-3 text-left hover:border-teal hover:bg-teal/5 transition-all"
-                        onClick={() => {
-                          setSelectedArticle(article)
-                          setKnowledgeSearch(article.title)
-                          knowledgeRef.current?.scrollIntoView({ behavior: "smooth" })
-                        }}
-                      >
-                        <p className="text-sm font-semibold text-navy">{article.title}</p>
-                        <p className="text-xs text-navy/60 mt-1">{article.summary}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </Card>
-          </div>
-        </section>
-
         <section ref={knowledgeRef} className="container mx-auto px-4 pb-16">
           <div className="max-w-5xl mx-auto">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-              <h3 className="font-serif text-2xl font-bold text-sand">Knowledge base</h3>
-              <div className="flex items-center gap-2 bg-sand/10 border border-sand/30 rounded-full px-4 py-2">
-                <Search className="h-4 w-4 text-sand" />
-                <input
-                  type="text"
-                  value={knowledgeSearch}
-                  onChange={(event) => setKnowledgeSearch(event.target.value)}
-                  placeholder="Search NHS topics"
-                  className="bg-transparent text-sand placeholder:text-sand/60 text-sm focus:outline-none"
-                />
-              </div>
-            </div>
             <Card className="bg-sand/95 border-sand/50 p-6 shadow-2xl backdrop-blur-sm">
-              <div className="grid gap-6 md:grid-cols-[260px_minmax(0,1fr)]">
-                <div className="space-y-3">
-                  {filteredArticles.map((article) => (
-                    <button
-                      key={article.id}
-                      className={`w-full text-left rounded-lg border px-3 py-2 transition-colors ${
-                        selectedArticle?.id === article.id
-                          ? "border-teal bg-teal/10 text-navy"
-                          : "border-navy/10 text-navy/70 hover:border-teal/60"
-                      }`}
-                      onClick={() => setSelectedArticle(article)}
-                    >
-                      <p className="text-sm font-semibold">{article.title}</p>
-                      <p className="text-xs text-navy/50 mt-1">{article.updatedAt}</p>
-                    </button>
-                  ))}
-                </div>
-                <div>
-                  {selectedArticle ? (
-                    <div>
-                      <h4 className="font-serif text-xl font-bold text-navy">{selectedArticle.title}</h4>
-                      <p className="text-xs text-navy/50 mt-1">
-                        Version {selectedArticle.version} • Updated {selectedArticle.updatedAt}
-                      </p>
-                      <div className="mt-4 space-y-4 text-sm text-navy/80">
-                        {selectedArticle.content.split("\n\n").map((paragraph, idx) => (
-                          <p key={idx}>{paragraph}</p>
-                        ))}
-                      </div>
-                      <div className="mt-4 text-xs text-navy/60">
-                        Sources:{" "}
-                        {selectedArticle.sources.map((source, idx) => (
-                          <span key={source.url}>
-                            <a className="underline" href={source.url} target="_blank" rel="noreferrer">
-                              {source.title}
-                            </a>
-                            {idx < selectedArticle.sources.length - 1 ? ", " : ""}
-                          </span>
-                        ))}
+              <Accordion type="single" collapsible>
+                <AccordionItem value="knowledge-base" className="border-navy/10">
+                  <AccordionTrigger className="text-navy">
+                    <div className="flex w-full flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <span className="font-serif text-xl font-bold">Knowledge base</span>
+                      <div
+                        className="flex items-center gap-2 bg-navy/5 border border-navy/10 rounded-full px-4 py-2"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <Search className="h-4 w-4 text-navy/70" />
+                        <input
+                          type="text"
+                          value={knowledgeSearch}
+                          onChange={(event) => setKnowledgeSearch(event.target.value)}
+                          placeholder="Search NHS topics"
+                          className="bg-transparent text-navy placeholder:text-navy/50 text-sm focus:outline-none"
+                        />
                       </div>
                     </div>
-                  ) : (
-                    <p className="text-sm text-navy/60">
-                      Select an article to view details and NHS sources.
-                    </p>
-                  )}
-                </div>
-              </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="pt-2">
+                    <div className="grid gap-6 md:grid-cols-[260px_minmax(0,1fr)]">
+                      <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2">
+                        {visibleArticles.map((article) => (
+                          <button
+                            key={article.id}
+                            className={`w-full text-left rounded-lg border px-3 py-2 transition-colors ${
+                              selectedArticle?.id === article.id
+                                ? "border-teal bg-teal/10 text-navy"
+                                : "border-navy/10 text-navy/70 hover:border-teal/60"
+                            }`}
+                            onClick={() => setSelectedArticle(article)}
+                          >
+                            <p className="text-sm font-semibold">{article.title}</p>
+                            <p className="text-xs text-navy/50 mt-1">{article.updatedAt}</p>
+                          </button>
+                        ))}
+                        {filteredArticles.length > 6 && (
+                          <button
+                            className="w-full rounded-lg border border-navy/10 px-3 py-2 text-xs font-semibold text-navy/70 hover:border-teal/60 hover:text-teal transition-colors"
+                            onClick={() => setShowAllArticles((prev) => !prev)}
+                          >
+                            {showAllArticles ? "Show fewer articles" : "Show more articles"}
+                          </button>
+                        )}
+                      </div>
+                      <div>
+                        {selectedArticle ? (
+                          <div>
+                            <h4 className="font-serif text-xl font-bold text-navy">{selectedArticle.title}</h4>
+                            <p className="text-xs text-navy/50 mt-1">
+                              Version {selectedArticle.version} • Updated {selectedArticle.updatedAt}
+                            </p>
+                            <div className="mt-4 space-y-4 text-sm text-navy/80">
+                              {selectedArticle.content.split("\n\n").map((paragraph, idx) => (
+                                <p key={idx}>{paragraph}</p>
+                              ))}
+                            </div>
+                            <div className="mt-4 text-xs text-navy/60">
+                              Sources:{" "}
+                              {selectedArticle.sources.map((source, idx) => (
+                                <span key={source.url}>
+                                  <a className="underline" href={source.url} target="_blank" rel="noreferrer">
+                                    {source.title}
+                                  </a>
+                                  {idx < selectedArticle.sources.length - 1 ? ", " : ""}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-navy/60">
+                            Select an article to view details and NHS sources.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </Card>
           </div>
         </section>
@@ -1130,7 +1128,7 @@ export default function Home() {
                 <AccordionItem value="how-it-works" className="border-navy/10">
                   <AccordionTrigger className="text-navy">
                     <div className="flex w-full items-center justify-between gap-4">
-                      <span className="font-serif text-xl font-bold">How it works</span>
+                      <span className="font-serif text-xl font-bold">Edit your profile</span>
                       <span className="text-xs text-navy/50">{profileLabel}</span>
                     </div>
                   </AccordionTrigger>
