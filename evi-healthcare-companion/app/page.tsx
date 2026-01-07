@@ -475,11 +475,11 @@ export default function Home() {
             </div>
 
             <h1 className="font-serif text-5xl md:text-6xl lg:text-7xl font-bold text-sand mb-6 text-balance">
-              Navigate NHS services with confidence
+              Navigate UK Healthcare with Confidence
             </h1>
 
             <p className="text-xl md:text-2xl text-sand/80 mb-10 leading-relaxed text-pretty">
-              Fast, friendly guidance for GP registration, triage, eligibility, and next steps across UK care pathways.
+              Fast, friendly guidance for LBS students regarding the NHS and triage pathways.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -537,7 +537,18 @@ export default function Home() {
                   </div>
                 </div>
 
-                <Card className="bg-sand/95 border-sand/50 p-6 shadow-2xl backdrop-blur-sm">
+                <Card className="relative overflow-hidden bg-sand/95 border-sand/50 p-6 shadow-2xl backdrop-blur-sm">
+                  <div className="absolute inset-x-0 top-0 h-1 bg-teal/90" />
+                  <div className="absolute -top-16 right-8 h-32 w-32 rounded-full bg-teal/10 blur-2xl" />
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-navy/50">Chat</p>
+                      <h4 className="text-lg font-semibold text-navy mt-2">Support chat</h4>
+                    </div>
+                    <div className="hidden sm:flex items-center gap-2 rounded-full border border-navy/15 bg-white/70 px-3 py-1 text-xs text-navy/60">
+                      Real-time guidance
+                    </div>
+                  </div>
                   {triageActive && (
                     <div className="mb-4 rounded-xl border border-coral/40 bg-coral/10 px-4 py-3 text-sm text-coral/90">
                       {triageNotice}
