@@ -66,7 +66,8 @@ type TrustItem = {
 const initialMessages: ChatMessage[] = [
   {
     role: "assistant",
-    message: "Hi! I can help you navigate NHS services. What would you like to know?",
+    message:
+      "Hi! I can guide you on NHS pathways, GP registration, and next steps for common health concerns. How can I help?",
   },
 ]
 
@@ -250,6 +251,10 @@ export default function Home() {
   const [usefulLinks, setUsefulLinks] = useState<UsefulLink[]>([])
   const [profileDraft, setProfileDraft] = useState<ProfileDraft>(emptyProfile)
   const [savedProfile, setSavedProfile] = useState<ProfileDraft | null>(null)
+  const [triageActive, setTriageActive] = useState(false)
+  const [triageNotice, setTriageNotice] = useState(
+    "Note: This triage is experimental and not medical advice. For urgent concerns, use NHS 111 at https://111.nhs.uk/."
+  )
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
   const chatSectionRef = useRef<HTMLDivElement>(null)
@@ -348,6 +353,7 @@ export default function Home() {
     setSessions((prev) => [fresh, ...prev])
     loadSession(fresh)
     setErrorMessage(null)
+    setTriageActive(false)
   }
 
   const exportConversation = (format: "txt" | "md" | "pdf") => {
@@ -430,6 +436,10 @@ export default function Home() {
         setProfileDraft(nextProfile)
         setSavedProfile(nextProfile)
       }
+      setTriageActive(Boolean(payload.triage_active))
+      if (payload.triage_notice) {
+        setTriageNotice(payload.triage_notice)
+      }
     } catch (error) {
       const isAbort = error instanceof Error && error.name === "AbortError"
       const fallback = isAbort
@@ -502,7 +512,7 @@ export default function Home() {
             <div className="flex flex-col gap-8">
               <div>
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6">
-                  <h3 className="font-serif text-2xl font-bold text-sand text-center sm:text-left">Live chat</h3>
+                  <div />
                   <div className="flex items-center gap-3">
                     <span className="text-xs uppercase tracking-wide text-sand/70">
                       {sessionId ? "Session active" : "New session"}
@@ -528,6 +538,11 @@ export default function Home() {
                 </div>
 
                 <Card className="bg-sand/95 border-sand/50 p-6 shadow-2xl backdrop-blur-sm">
+                  {triageActive && (
+                    <div className="mb-4 rounded-xl border border-coral/40 bg-coral/10 px-4 py-3 text-sm text-coral/90">
+                      {triageNotice}
+                    </div>
+                  )}
                   <div ref={chatScrollRef} className="space-y-4 mb-6 max-h-[420px] overflow-y-auto pr-2">
                     {messages.map((exchange, idx) => (
                       <div
@@ -571,7 +586,7 @@ export default function Home() {
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && sendMessage(chatInput)}
-                      placeholder="Ask a question or type 'onboarding'..."
+                      placeholder="Ask a question"
                       className="flex-1 px-4 py-3 rounded-lg border-2 border-navy/20 focus:border-teal focus:outline-none bg-white text-navy placeholder:text-navy/50"
                     />
                     <Button

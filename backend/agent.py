@@ -64,6 +64,9 @@ class AgentSession:
         self.triage_active = False
         self.triage_known_answers: Dict[str, Any] = {}
         self.triage_question_count = 0
+        self.triage_pending_question: Optional[str] = None
+        self.triage_asked_questions: List[str] = []
+        self.triage_asked_topics: set[str] = set()
 
         self.prompt_suggestions: List[str] = []
         self.last_useful_links: List[Dict[str, str]] = []
@@ -117,14 +120,57 @@ class AgentSession:
         if isinstance(parsed, dict):
             if parsed.get("status") == "need_more_info":
                 self.triage_active = True
+                follow_ups = parsed.get("follow_up_questions") or []
+                if isinstance(follow_ups, list) and follow_ups:
+                    self.triage_pending_question = str(follow_ups[0]).strip()
                 self.triage_known_answers.update(parsed.get("known_answers_update", {}))
                 self.triage_question_count = self.triage_question_count + 1
             elif parsed.get("status") == "final":
                 self.triage_active = False
                 self.triage_known_answers = {}
                 self.triage_question_count = 0
+                self.triage_pending_question = None
+                self.triage_asked_questions = []
+                self.triage_asked_topics = set()
 
         return parsed
+
+    def _normalize_question(self, text: str) -> str:
+        cleaned = re.sub(r"\s+", " ", (text or "").strip().lower())
+        return re.sub(r"[^\w\s?]", "", cleaned)
+
+    def _topic_from_question(self, question: str) -> Optional[str]:
+        lowered = question.lower()
+        if "scale" in lowered or "0 to 10" in lowered or "severity" in lowered or "pain" in lowered:
+            return "severity"
+        if "how long" in lowered or "when did" in lowered or "started" in lowered or "onset" in lowered:
+            return "onset"
+        if "function" in lowered or "walk" in lowered or "eating" in lowered or "breathing" in lowered:
+            return "function"
+        if "other symptoms" in lowered or "red flag" in lowered or "faint" in lowered or "bleeding" in lowered:
+            return "red_flags"
+        return None
+
+    def _fallback_triage_question(self) -> str:
+        topic_questions = [
+            ("severity", "How severe is it on a 0 to 10 scale?"),
+            ("onset", "When did this start, and is it getting better or worse?"),
+            ("function", "Can you function normally (walk/eat/breathe) right now?"),
+            ("red_flags", "Any other worrying symptoms like chest pain, heavy bleeding, or feeling faint?"),
+        ]
+        for topic, question in topic_questions:
+            if topic not in self.triage_asked_topics:
+                return question
+        return "Is there anything else about your symptoms that feels important to mention?"
+
+    def _record_triage_question(self, question: str) -> None:
+        normalized = self._normalize_question(question)
+        if normalized:
+            if normalized not in self.triage_asked_questions:
+                self.triage_asked_questions.append(normalized)
+            topic = self._topic_from_question(question)
+            if topic:
+                self.triage_asked_topics.add(topic)
 
     def _fallback_triage_result(self, postcode_full: str) -> Dict[str, Any]:
         return {
@@ -668,6 +714,8 @@ class AgentSession:
         pinned = []
 
         if self.triage_active:
+            if self.triage_asked_questions:
+                self.triage_known_answers["asked_questions"] = list(self.triage_asked_questions)
             pinned.append(
                 {
                     "role": "system",
@@ -814,6 +862,16 @@ class AgentSession:
                 presenting_issue=user_input,
                 nearest_services=nearest_services_result,
             )
+
+        if not bailed_with_unresolved_calls and self.triage_active and self.triage_pending_question:
+            question = self.triage_pending_question
+            topic = self._topic_from_question(question)
+            normalized = self._normalize_question(question)
+            if normalized in self.triage_asked_questions or (topic and topic in self.triage_asked_topics):
+                question = self._fallback_triage_question()
+            self._record_triage_question(question)
+            self.triage_pending_question = None
+            agent_reply = question
 
         # If unresolved tool calls, force text-only reply
         if bailed_with_unresolved_calls:

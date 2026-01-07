@@ -23,6 +23,8 @@ class ChatResponse(BaseModel):
     prompt_suggestions: List[str]
     useful_links: List[Dict[str, str]]
     user_profile: Dict[str, Any]
+    triage_active: bool
+    triage_notice: str
 
 
 class ProfileRequest(BaseModel):
@@ -36,6 +38,11 @@ class ProfileResponse(BaseModel):
 
 
 app = FastAPI(title="Evi Healthcare Companion API")
+
+TRIAGE_NOTICE = (
+    "Note: This triage is experimental and not medical advice. "
+    "For urgent concerns, use NHS 111 at https://111.nhs.uk/."
+)
 
 allowed_origins = [
     origin.strip()
@@ -91,6 +98,8 @@ def chat(payload: ChatRequest) -> ChatResponse:
         prompt_suggestions=session.prompt_suggestions,
         useful_links=session.last_useful_links,
         user_profile=session.user_profile,
+        triage_active=session.triage_active,
+        triage_notice=TRIAGE_NOTICE if session.triage_active else "",
     )
 
 

@@ -286,6 +286,7 @@ Rules:
 - If len(known_answers) >= 5, do NOT ask more questions unless absolutely necessary; move to FORM B with your best judgment.
 - If len(known_answers) >= 8, you MUST return FORM B (final) with your best judgment (no more questions).
 - Do NOT repeat a topic already present in known_answers. Common keys: severity, onset, injury_trauma, functional ability (walking/using/weight-bearing), swelling/heat/bruising/deformity, red_flags, mental_health_safety.
+- If known_answers includes asked_questions, do NOT repeat any of those questions; ask a different topic.
 - Examples of useful follow-ups (pick ONE at a time and only if not already covered):
   - severity 0-10
   - rapid onset vs gradual / time course
