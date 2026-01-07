@@ -495,8 +495,7 @@ class AgentSession:
             "You are an NHS navigation coach. Use the summary to produce a concise, user-facing response. "
             "Include SMART recommendations (Specific, Measurable, Achievable, Relevant, Time-bound). "
             "Do NOT use the headings: Recommendation, Why, What to do next, What to say, Safety net. "
-            "Use short bold labels and bullets. Keep it under 140 words. "
-            "Include https://111.nhs.uk/ if the route is NHS 111.\n\n"
+            "Use short bold labels and bullets. Keep it under 140 words.\n\n"
             f"Summary:\n{summary}"
         )
         resp = self.safe_create(

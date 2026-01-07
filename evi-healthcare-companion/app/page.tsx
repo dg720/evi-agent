@@ -572,14 +572,12 @@ export default function Home() {
                         </DialogDescription>
                       </DialogHeader>
                       <div className="flex flex-wrap gap-3 justify-end">
-                        <a
+                        <button
                           className="text-sm font-semibold text-teal hover:text-teal/80"
-                          href="https://111.nhs.uk/"
-                          target="_blank"
-                          rel="noreferrer"
+                          onClick={() => setTriageNoticeOpen(false)}
                         >
-                          Open NHS 111
-                        </a>
+                          Close
+                        </button>
                       </div>
                     </DialogContent>
                   </Dialog>
@@ -631,7 +629,7 @@ export default function Home() {
                     />
                     <Button
                       onClick={() => sendMessage(chatInput)}
-                      className="bg-teal hover:bg-teal/90 text-white px-6"
+                      className="bg-teal hover:bg-teal/90 text-white px-6 h-[52px] w-[52px]"
                     >
                       <MessageCircle className="h-5 w-5" />
                     </Button>
