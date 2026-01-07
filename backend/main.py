@@ -27,21 +27,11 @@ class ChatResponse(BaseModel):
     triage_notice: str
 
 
-class ProfileRequest(BaseModel):
-    session_id: Optional[str] = None
-    profile: Dict[str, Any]
-
-
-class ProfileResponse(BaseModel):
-    session_id: str
-    user_profile: Dict[str, Any]
-
-
 app = FastAPI(title="Evi Healthcare Companion API")
 
 TRIAGE_NOTICE = (
     "Note: This triage is experimental and not medical advice. "
-    "For urgent concerns, use NHS 111 at https://111.nhs.uk/."
+    "For urgent concerns, use NHS 111: https://111.nhs.uk/."
 )
 
 allowed_origins = [
@@ -103,11 +93,3 @@ def chat(payload: ChatRequest) -> ChatResponse:
     )
 
 
-@app.post("/api/profile", response_model=ProfileResponse)
-def update_profile(payload: ProfileRequest) -> ProfileResponse:
-    session_id, session = _get_or_create_session(payload.session_id)
-    if not isinstance(payload.profile, dict):
-        raise HTTPException(status_code=400, detail="Profile must be an object.")
-
-    session.set_user_profile(payload.profile)
-    return ProfileResponse(session_id=session_id, user_profile=session.user_profile)

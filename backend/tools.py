@@ -10,7 +10,7 @@ from openai import OpenAI
 from config import ONBOARDING_QUESTIONS
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
 
@@ -150,6 +150,8 @@ def guided_search(args, max_results_default: int = 5):
     """
     Allowlist-first retrieval using ONLY OpenAI web_search_preview.
     """
+    if client is None:
+        return {"context": "", "sources": [], "fallback_used": True}
     if isinstance(args, dict):
         query = args.get("query", "") or args.get("q", "")
         max_results = int(args.get("max_results", max_results_default) or max_results_default)
@@ -234,6 +236,8 @@ def nhs_111_live_triage(args):
     Lightweight LLM-led triage + routing for NHS 111.
     Returns either follow-up questions (need_more_info) or a final routing decision.
     """
+    if client is None:
+        return {"raw": "", "error": "OpenAI client not configured"}
     presenting_issue = args.get("presenting_issue")
     postcode_full = args.get("postcode_full")
     known_answers = args.get("known_answers", {}) or {}
@@ -286,7 +290,7 @@ Rules:
 - If len(known_answers) >= 5, do NOT ask more questions unless absolutely necessary; move to FORM B with your best judgment.
 - If len(known_answers) >= 8, you MUST return FORM B (final) with your best judgment (no more questions).
 - Do NOT repeat a topic already present in known_answers. Common keys: severity, onset, injury_trauma, functional ability (walking/using/weight-bearing), swelling/heat/bruising/deformity, red_flags, mental_health_safety.
-- If known_answers includes asked_questions, do NOT repeat any of those questions; ask a different topic.
+- If known_answers includes asked_questions, do NOT repeat those questions; ask a different topic.
 - Examples of useful follow-ups (pick ONE at a time and only if not already covered):
   - severity 0-10
   - rapid onset vs gradual / time course

@@ -1,28 +1,25 @@
-# Evi - LBS Healthcare Companion
+# Evi — UK Healthcare Navigation Assistant
 
-Evi helps international students navigate the UK healthcare system with onboarding, triage, and NHS guidance.
-This repo includes a FastAPI backend and a Next.js frontend built from the v0 UI.
+Evi is a conversational assistant that helps international students understand UK healthcare pathways, triage options, and GP registration. It is informational only and routes users to the right NHS entry points with clear safety guidance.
 
-## Repo map
-- `backend/` - FastAPI service and core agent logic (onboarding, triage, tools).
-- `evi-healthcare-companion/` - Next.js frontend UI.
+## Product snapshot (founder-friendly)
+- **Audience:** International students & newcomers to the UK.
+- **Outcome:** Faster, confident decisions on where to go (GP, NHS 111, A&E, pharmacy).
+- **How it works:** A friendly chat UI with onboarding and NHS-aligned triage rules.
+- **Safety:** Red-flag handling and explicit escalation to NHS 111 / 999.
 
-## Quick start (local)
-Backend:
-1) `cd backend`
-2) `pip install -r requirements.txt`
-3) `setx OPENAI_API_KEY "your_key_here"` (PowerShell) or set it in your environment
-4) `uvicorn main:app --reload --port 8000`
+## What’s live
+- Web chat with onboarding and triage routing.
+- NHS link recommendations tailored to the conversation.
+- Trust & governance disclosures via concise modals.
 
-Frontend:
-1) `cd evi-healthcare-companion`
-2) `npm install`
-3) `setx NEXT_PUBLIC_API_BASE_URL "http://localhost:8000"`
-4) `npm run dev`
+## Architecture (high level)
+- **Frontend:** Next.js app (`evi-healthcare-companion/`).
+- **Backend:** FastAPI service (`backend/`) orchestrating LLM + NHS tools.
+- **Sessions:** In-memory only (no DB yet).
 
-## Railway deployment (CLI)
-- See `docs/deploy/RAILWAY_CLI_DEPLOY.md`.
+## Deployment
+- Railway CLI guide: `docs/DEPLOY.md`.
 
-## Notes
-- The FastAPI endpoint is `POST /api/chat` and returns `{ session_id, reply, prompt_suggestions }`.
-- The frontend stores a session id in memory for multi-turn chat.
+## Technical notes for engineers
+- See `docs/TECHNICAL.md` for setup and API details.

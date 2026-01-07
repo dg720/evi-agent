@@ -255,6 +255,8 @@ export default function Home() {
   const [triageNotice, setTriageNotice] = useState(
     "Note: This triage is experimental and not medical advice. For urgent concerns, use NHS 111 at https://111.nhs.uk/."
   )
+  const [triageNoticeOpen, setTriageNoticeOpen] = useState(false)
+  const [triageNoticeSeen, setTriageNoticeSeen] = useState(false)
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
   const chatSectionRef = useRef<HTMLDivElement>(null)
@@ -319,6 +321,19 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
+    if (!triageActive && triageNoticeSeen) {
+      setTriageNoticeSeen(false)
+    }
+    if (!triageActive && triageNoticeOpen) {
+      setTriageNoticeOpen(false)
+    }
+    if (triageActive && !triageNoticeSeen) {
+      setTriageNoticeOpen(true)
+      setTriageNoticeSeen(true)
+    }
+  }, [triageActive, triageNoticeSeen])
+
+  useEffect(() => {
     if (!activeSessionKey) return
     setSessions((prev) => {
       const updated = prev.map((session) => {
@@ -354,6 +369,8 @@ export default function Home() {
     loadSession(fresh)
     setErrorMessage(null)
     setTriageActive(false)
+    setTriageNoticeOpen(false)
+    setTriageNoticeSeen(false)
   }
 
   const exportConversation = (format: "txt" | "md" | "pdf") => {
@@ -546,11 +563,26 @@ export default function Home() {
                       <h4 className="text-lg font-semibold text-navy mt-2">Chat with Evi</h4>
                     </div>
                   </div>
-                  {triageActive && (
-                    <div className="mb-4 rounded-xl border border-coral/40 bg-coral/10 px-4 py-3 text-sm text-coral/90">
-                      {triageNotice}
-                    </div>
-                  )}
+                  <Dialog open={triageNoticeOpen} onOpenChange={setTriageNoticeOpen}>
+                    <DialogContent className="bg-sand text-navy border-sand/60">
+                      <DialogHeader>
+                        <DialogTitle className="font-serif">Triage notice</DialogTitle>
+                        <DialogDescription className="text-navy/70">
+                          {triageNotice}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="flex flex-wrap gap-3 justify-end">
+                        <a
+                          className="text-sm font-semibold text-teal hover:text-teal/80"
+                          href="https://111.nhs.uk/"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open NHS 111
+                        </a>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                   <div ref={chatScrollRef} className="space-y-4 mb-6 max-h-[420px] overflow-y-auto pr-2">
                     {messages.map((exchange, idx) => (
                       <div

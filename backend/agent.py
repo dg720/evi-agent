@@ -29,7 +29,7 @@ from tools import (
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAI_API_KEY)
+client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
 # --- Tool Registry for Python-side Execution ---
@@ -53,6 +53,8 @@ class AgentSession:
     """
 
     def __init__(self, client_override: Optional[OpenAI] = None):
+        if client_override is None and client is None:
+            raise ValueError("OPENAI_API_KEY is not configured.")
         self.client = client_override or client
         self.conversation_history: List[Dict[str, str]] = []
         self.user_profile: Dict[str, Any] = {}
@@ -422,7 +424,7 @@ class AgentSession:
             return self._prompt_next_onboarding_question()
         return self._start_profile_review()
 
-    def _build_routing_response(
+    def _build_triage_summary(
         self,
         triage_result: Dict[str, Any],
         presenting_issue: str,
@@ -456,7 +458,7 @@ class AgentSession:
 
         services_lines = []
         if isinstance(nearest_services, list) and nearest_services:
-            services_lines.append("Nearest services (based on your postcode):")
+            services_lines.append("Nearest services:")
             for item in nearest_services[:3]:
                 name = item.get("name", "Service")
                 distance = item.get("distance", "")
@@ -478,32 +480,46 @@ class AgentSession:
         )
 
         lines = [
-            "Recommendation",
-            f"Best option: {service_label}",
-            "",
-            "Why",
-            rationale,
-            "",
-            "What to do next",
-            *next_steps,
+            f"Suggested route: {service_label}",
+            f"Reasoning: {rationale}",
+            "Next actions: " + " | ".join(next_steps),
         ]
-
         if services_lines:
-            lines.append("")
-            lines.extend(services_lines)
-
-        lines.extend(
-            [
-                "",
-                "What to say",
-                script or "I need help deciding the right NHS service for my symptoms.",
-                "",
-                "Safety net",
-                safety_net,
-            ]
-        )
-
+            lines.append(" ".join(services_lines))
+        lines.append(f"Suggested script: {script or 'I need help deciding the right NHS service for my symptoms.'}")
+        lines.append(f"Safety check: {safety_net}")
         return "\n".join(lines)
+
+    def _format_triage_smart_response(self, summary: str) -> str:
+        prompt = (
+            "You are an NHS navigation coach. Use the summary to produce a concise, user-facing response. "
+            "Include SMART recommendations (Specific, Measurable, Achievable, Relevant, Time-bound). "
+            "Do NOT use the headings: Recommendation, Why, What to do next, What to say, Safety net. "
+            "Use short bold labels and bullets. Keep it under 140 words. "
+            "Include https://111.nhs.uk/ if the route is NHS 111.\n\n"
+            f"Summary:\n{summary}"
+        )
+        resp = self.safe_create(
+            model="gpt-4o-mini",
+            store=True,
+            input=[{"role": "system", "content": prompt}],
+            tools=[],
+            tool_choice="none",
+            max_output_tokens=200,
+        )
+        text = resp.output_text or ""
+        if len(text.strip()) < 20:
+            return summary
+        return text
+
+    def _build_routing_response(
+        self,
+        triage_result: Dict[str, Any],
+        presenting_issue: str,
+        nearest_services: Optional[Any],
+    ) -> str:
+        summary = self._build_triage_summary(triage_result, presenting_issue, nearest_services)
+        return self._format_triage_smart_response(summary)
 
     def _contains_action(self, text: str) -> bool:
         lowered = (text or "").lower()
