@@ -27,6 +27,12 @@ railway init -n <new-project-name> -w "<workspace-name>"
 railway link --project <project-id> --environment production --workspace "<workspace-name>"
 ```
 
+Confirm the correct project before deploying:
+
+```bash
+railway status
+```
+
 ## 2) Create services
 
 ```bash
@@ -117,7 +123,20 @@ npm install
 
 Commit the updated lockfile before deploying.
 
-## 10) Debugging and logs
+## 10) GitHub auto-deploy + CLI override
+
+Enable auto-deploys from GitHub (recommended for future releases):
+- Open the Railway dashboard (`railway open`)
+- Service → Settings → Source → Connect GitHub repo/branch
+- Enable auto-deploy on push
+
+CLI override (deploy local changes without waiting for GitHub):
+
+```bash
+railway up <service-root> --path-as-root -s <service-name> -d
+```
+
+## 11) Debugging and logs
 
 Build logs (last 200 lines):
 
@@ -139,7 +158,7 @@ railway logs --build <deployment-id>
 railway logs <deployment-id>
 ```
 
-## 11) Common fixes
+## 12) Common fixes
 - Wrong root folder: deploy from `<backend-root>` or `<frontend-root>`.
 - Lockfile out of date: run `npm install` (or the package manager you chose).
 - Frontend hangs: backend base URL must include `https://` and be reachable.

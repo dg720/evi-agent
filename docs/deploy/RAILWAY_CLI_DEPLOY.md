@@ -35,6 +35,12 @@ railway link --project <project-id> --environment production --workspace "<works
 
 Select the target workspace, project, and environment (usually `production`).
 
+Confirm the correct project before deploying:
+
+```bash
+railway status
+```
+
 ## 1b) Create services (new project only)
 
 ```bash
@@ -133,6 +139,19 @@ npx -y pnpm@9.15.9 install
 ```
 
 Commit the updated lockfile before deploying.
+
+## 6c) GitHub auto-deploy + CLI override
+
+Enable auto-deploys from GitHub (recommended for future releases):
+- Open the Railway dashboard (`railway open`)
+- Service → Settings → Source → Connect GitHub repo/branch
+- Enable auto-deploy on push
+
+CLI override (deploy local changes without waiting for GitHub):
+
+```bash
+railway up <service-root> --path-as-root -s <service-name> -d
+```
 
 ## 7) Debugging and logs (CLI)
 
