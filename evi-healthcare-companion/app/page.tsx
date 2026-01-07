@@ -485,7 +485,7 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Button
                 size="lg"
-                className="w-full sm:w-56 justify-center bg-teal hover:bg-teal/90 text-white font-semibold px-8 py-6 text-lg"
+                className="w-full sm:w-56 justify-center bg-teal hover:bg-teal/90 text-white font-semibold px-8 py-6 text-lg h-14"
                 onClick={focusChat}
               >
                 <MessageCircle className="mr-2 h-5 w-5" />
@@ -494,7 +494,7 @@ export default function Home() {
               <Button
                 size="lg"
                 variant="outline"
-                className="w-full sm:w-56 justify-center border-coral/40 text-white bg-coral hover:bg-coral/90 font-semibold px-8 py-6 text-lg"
+                className="w-full sm:w-56 justify-center border-coral/40 text-white bg-coral hover:bg-coral/90 font-semibold px-8 py-6 text-lg h-14"
                 onClick={() => {
                   focusChat()
                   sendMessage("Start onboarding")
