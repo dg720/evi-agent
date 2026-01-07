@@ -252,7 +252,7 @@ export default function Home() {
   const [profileDraft, setProfileDraft] = useState<ProfileDraft>(emptyProfile)
   const [savedProfile, setSavedProfile] = useState<ProfileDraft | null>(null)
   const [triageActive, setTriageActive] = useState(false)
-  const [triageNotice] = useState(
+  const [triageNotice, setTriageNotice] = useState(
     "Note: This triage is experimental and not medical advice. For urgent concerns, use NHS 111."
   )
   const [triageNoticeOpen, setTriageNoticeOpen] = useState(false)
