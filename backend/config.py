@@ -5,7 +5,7 @@ from typing import Dict, List
 
 ONBOARDING_QUESTIONS: List[Dict[str, object]] = [
     {"key": "name", "question": "What's your name? (optional - you can say 'skip')", "optional": True},
-    {"key": "age_range", "question": "What's your age range?", "optional": False},
+    {"key": "age_range", "question": "What's your age (or age range)?", "optional": False},
     {"key": "stay_length", "question": "How long will you stay in the UK?", "optional": False},
     {"key": "postcode", "question": "What's your London postcode / area?", "optional": False},
     {"key": "visa_status", "question": "Do you hold a UK visa/status (e.g., student, work, settled, visitor)?", "optional": False},

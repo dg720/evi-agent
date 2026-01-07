@@ -12,6 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import {
+  ClipboardList,
   MessageCircle,
   Shield,
   MapPin,
@@ -134,6 +135,11 @@ const buildProfileDraft = (raw: Record<string, unknown>): ProfileDraft => {
   }
 }
 
+const onboardingLinks: UsefulLink[] = [
+  { title: "NHS services guide", url: "https://www.nhs.uk/using-the-nhs/nhs-services/" },
+  { title: "Register with a GP", url: "https://www.nhs.uk/nhs-services/gps/how-to-register-with-a-gp-surgery/" },
+]
+
 const isProfileComplete = (profile: ProfileDraft | null) => {
   if (!profile) return false
   const requiredFields: Array<keyof ProfileDraft> = [
@@ -250,6 +256,7 @@ export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
   const showRelatedLinks = isProfileComplete(savedProfile)
+  const linksToShow = showRelatedLinks ? usefulLinks : onboardingLinks
 
   const createNewSession = (): ChatSession => {
     const now = new Date().toISOString()
@@ -483,7 +490,8 @@ export default function Home() {
                   sendMessage("Start onboarding")
                 }}
               >
-                📋 Start Onboarding
+                <ClipboardList className="mr-2 h-5 w-5" />
+                Start Onboarding
               </Button>
             </div>
           </div>
@@ -576,43 +584,45 @@ export default function Home() {
 
                 </Card>
 
-                {showRelatedLinks ? (
-                  <Card className="relative overflow-hidden bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm mt-8">
-                    <div className="absolute inset-x-0 top-0 h-1 bg-coral/90" />
-                    <div className="absolute -top-16 right-8 h-32 w-32 rounded-full bg-coral/10 blur-2xl" />
-                    <div className="flex items-center justify-between mb-6">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.2em] text-navy/50">Guided by your profile</p>
-                        <h4 className="text-lg font-semibold text-navy mt-2">Related Links</h4>
-                      </div>
+                <Card className="relative overflow-hidden bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm mt-8">
+                  <div className="absolute inset-x-0 top-0 h-1 bg-coral/90" />
+                  <div className="absolute -top-16 right-8 h-32 w-32 rounded-full bg-coral/10 blur-2xl" />
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.2em] text-navy/50">
+                        {showRelatedLinks ? "Guided by your profile" : "Onboarding essentials"}
+                      </p>
+                      <h4 className="text-lg font-semibold text-navy mt-2">Related Links</h4>
+                    </div>
+                    {showRelatedLinks ? (
                       <div className="hidden sm:flex items-center gap-2 rounded-full border border-navy/15 bg-white/70 px-3 py-1 text-xs text-navy/60">
                         Updated from your chat
                       </div>
+                    ) : null}
+                  </div>
+                  {linksToShow.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-navy/20 bg-white/60 p-8 text-center text-navy/60">
+                      Ask a question to see tailored NHS and LBS links here.
                     </div>
-                    {usefulLinks.length === 0 ? (
-                      <div className="rounded-2xl border border-dashed border-navy/20 bg-white/60 p-8 text-center text-navy/60">
-                        Ask a question to see tailored NHS and LBS links here.
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {usefulLinks.map((link, idx) => (
-                          <a
-                            key={idx}
-                            href={link.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-3 rounded-xl border border-navy/20 bg-white/80 px-4 py-3 hover:border-coral/60 hover:bg-white transition-all group animate-fade-in"
-                            style={{ animationDelay: `${idx * 60}ms` }}
-                          >
-                            <MapPin className="h-5 w-5 text-coral flex-shrink-0" />
-                            <span className="text-navy font-medium group-hover:text-coral transition-colors">{link.title}</span>
-                            <ChevronRight className="h-4 w-4 text-navy/40 ml-auto group-hover:text-coral transition-colors" />
-                          </a>
-                        ))}
-                      </div>
-                    )}
-                  </Card>
-                ) : null}
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {linksToShow.map((link, idx) => (
+                        <a
+                          key={idx}
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-3 rounded-xl border border-navy/20 bg-white/80 px-4 py-3 hover:border-coral/60 hover:bg-white transition-all group animate-fade-in"
+                          style={{ animationDelay: `${idx * 60}ms` }}
+                        >
+                          <MapPin className="h-5 w-5 text-coral flex-shrink-0" />
+                          <span className="text-navy font-medium group-hover:text-coral transition-colors">{link.title}</span>
+                          <ChevronRight className="h-4 w-4 text-navy/40 ml-auto group-hover:text-coral transition-colors" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </Card>
               </div>
             </div>
           </div>
@@ -658,15 +668,7 @@ export default function Home() {
                 ))}
               </div>
             </div>
-            <div className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-4">
-              <Shield className="h-5 w-5 text-sand/60" />
-              <p className="text-sand/80 leading-relaxed">
-                Evi is informational only and does not provide medical advice.
-              </p>
-            </div>
-            <p className="text-sand/60 text-sm">(c) 2025 LBS Healthcare Companion</p>
-            </div>
+            <div className="text-center"></div>
           </div>
         </footer>
       </div>

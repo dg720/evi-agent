@@ -181,6 +181,8 @@ class AgentSession:
         return text, False
 
     def _validate_age_range(self, text: str) -> Optional[str]:
+        if re.match(r"^\d{1,3}$", text):
+            return text
         if re.match(r"^\d{1,2}\s*-\s*\d{1,2}$", text):
             return text.replace(" ", "")
         if re.match(r"^\d{1,2}\+$", text):
@@ -242,7 +244,7 @@ class AgentSession:
             if key == "gp_registered":
                 return None, "Please answer with yes or no."
             if key == "age_range":
-                return None, "Please use an age range like 18-24 or 25+."
+                return None, "Please enter your age or an age range like 18-24 or 25+."
             if key == "postcode":
                 return None, "Please enter a UK postcode or area (e.g., NW8 or NW8 9HU)."
             return None, "Please enter a valid response."
