@@ -253,7 +253,7 @@ export default function Home() {
   const [savedProfile, setSavedProfile] = useState<ProfileDraft | null>(null)
   const [triageActive, setTriageActive] = useState(false)
   const [triageNotice, setTriageNotice] = useState(
-    "Note: This triage is experimental and not medical advice. For urgent concerns, use NHS 111 at https://111.nhs.uk/."
+    "Note: This triage is experimental and not medical advice. For urgent concerns, use NHS 111."
   )
   const [triageNoticeOpen, setTriageNoticeOpen] = useState(false)
   const [triageNoticeSeen, setTriageNoticeSeen] = useState(false)
@@ -568,7 +568,16 @@ export default function Home() {
                       <DialogHeader>
                         <DialogTitle className="font-serif">Triage notice</DialogTitle>
                         <DialogDescription className="text-navy/70">
-                          {triageNotice}
+                          {triageNotice}{" "}
+                          <a
+                            className="font-semibold text-teal hover:text-teal/80"
+                            href="https://111.nhs.uk/"
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            NHS 111
+                          </a>
+                          .
                         </DialogDescription>
                       </DialogHeader>
                       <div className="flex flex-wrap gap-3 justify-end">
