@@ -1,9 +1,8 @@
 ﻿"use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog,
   DialogContent,
@@ -18,10 +17,7 @@ import {
   MapPin,
   ChevronRight,
   RotateCcw,
-  Save,
-  Search,
 } from "lucide-react"
-import { knowledgeBase, type KnowledgeArticle } from "@/lib/knowledge-base"
 
 type ChatMessage = {
   role: "assistant" | "user"
@@ -110,22 +106,6 @@ const trustItems: TrustItem[] = [
   },
 ]
 
-const profileFields = [
-  { key: "name", label: "Name", placeholder: "Optional" },
-  { key: "age_range", label: "Age range", placeholder: "e.g., 18-24" },
-  { key: "stay_length", label: "UK stay length", placeholder: "e.g., 9 months" },
-  { key: "postcode", label: "Postcode or area", placeholder: "e.g., NW8 9HU" },
-  { key: "visa_status", label: "Visa or status", placeholder: "e.g., student" },
-  { key: "gp_registered", label: "GP registered?", placeholder: "Yes / No" },
-]
-
-const profileTextAreas = [
-  { key: "conditions", label: "Long-term conditions", placeholder: "Optional" },
-  { key: "medications", label: "Medications or treatment", placeholder: "Optional" },
-  { key: "lifestyle_focus", label: "Lifestyle focus", placeholder: "e.g., fitness" },
-  { key: "mental_wellbeing", label: "Mental wellbeing", placeholder: "Optional" },
-]
-
 const emptyProfile: ProfileDraft = {
   name: "",
   age_range: "",
@@ -154,6 +134,18 @@ const buildProfileDraft = (raw: Record<string, unknown>): ProfileDraft => {
   }
 }
 
+const isProfileComplete = (profile: ProfileDraft | null) => {
+  if (!profile) return false
+  const requiredFields: Array<keyof ProfileDraft> = [
+    "age_range",
+    "stay_length",
+    "postcode",
+    "visa_status",
+    "gp_registered",
+  ]
+  return requiredFields.every((key) => String(profile[key]).trim().length > 0)
+}
+
 const formatMessage = (text: string) => {
   const escaped = text
     .replace(/&/g, "&amp;")
@@ -168,16 +160,6 @@ const createSessionId = () => {
     return crypto.randomUUID()
   }
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
-const formatTimestamp = (iso: string) => {
-  const date = new Date(iso)
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
 }
 
 const buildSessionTitle = (messages: ChatMessage[]) => {
@@ -262,18 +244,12 @@ export default function Home() {
   const [usefulLinks, setUsefulLinks] = useState<UsefulLink[]>([])
   const [profileDraft, setProfileDraft] = useState<ProfileDraft>(emptyProfile)
   const [savedProfile, setSavedProfile] = useState<ProfileDraft | null>(null)
-  const [profileLabel, setProfileLabel] = useState("No saved profile yet")
-  const [profileSaveStatus, setProfileSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
-  const [knowledgeSearch, setKnowledgeSearch] = useState("")
-  const [selectedArticle, setSelectedArticle] = useState<KnowledgeArticle | null>(null)
-  const [showAllArticles, setShowAllArticles] = useState(false)
-
   const chatSectionRef = useRef<HTMLDivElement>(null)
-  const knowledgeRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
+  const showRelatedLinks = isProfileComplete(savedProfile)
 
   const createNewSession = (): ChatSession => {
     const now = new Date().toISOString()
@@ -295,18 +271,12 @@ export default function Home() {
     setMessages(session.messages)
     setSessionId(session.sessionId)
     setUsefulLinks(session.usefulLinks)
-    setProfileSaveStatus("idle")
     setSavedProfile(
       Object.values(session.profileSnapshot || {}).some((value) => String(value || "").trim())
         ? session.profileSnapshot
         : null
     )
     setProfileDraft(session.profileSnapshot || emptyProfile)
-    setProfileLabel(
-      Object.values(session.profileSnapshot || {}).some((value) => String(value || "").trim())
-        ? "Saved profile"
-        : "No saved profile yet"
-    )
   }
 
   useEffect(() => {
@@ -361,30 +331,6 @@ export default function Home() {
     })
   }, [activeSessionKey, messages, sessionId, usefulLinks, profileDraft, savedProfile])
 
-  const filteredArticles = useMemo(() => {
-    const term = knowledgeSearch.trim().toLowerCase()
-    if (!term) return knowledgeBase
-    return knowledgeBase.filter((article) => {
-      return (
-        article.title.toLowerCase().includes(term) ||
-        article.summary.toLowerCase().includes(term) ||
-        article.content.toLowerCase().includes(term)
-      )
-    })
-  }, [knowledgeSearch])
-
-  const visibleArticles = useMemo(() => {
-    if (showAllArticles) return filteredArticles
-    return filteredArticles.slice(0, 6)
-  }, [filteredArticles, showAllArticles])
-
-  useEffect(() => {
-    if (filteredArticles.length === 0) return
-    if (!selectedArticle || !filteredArticles.some((article) => article.id === selectedArticle.id)) {
-      setSelectedArticle(filteredArticles[0])
-    }
-  }, [filteredArticles, selectedArticle])
-
   const focusChat = () => {
     chatSectionRef.current?.scrollIntoView({ behavior: "smooth" })
     setTimeout(() => inputRef.current?.focus(), 350)
@@ -395,47 +341,6 @@ export default function Home() {
     setSessions((prev) => [fresh, ...prev])
     loadSession(fresh)
     setErrorMessage(null)
-    setProfileSaveStatus("idle")
-    setSelectedArticle(null)
-  }
-
-  const handleProfileChange = (field: keyof ProfileDraft, value: string) => {
-    setProfileDraft((prev) => ({
-      ...prev,
-      [field]: value,
-    }))
-  }
-
-  const saveProfile = async () => {
-    setProfileSaveStatus("saving")
-    setErrorMessage(null)
-
-    try {
-      const response = await fetch("/api/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionId,
-          profile: profileDraft,
-        }),
-      })
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}))
-        throw new Error(payload?.detail || "Failed to save profile.")
-      }
-
-      const payload = await response.json()
-      setSessionId(payload.session_id)
-      const nextProfile = buildProfileDraft(payload.user_profile || emptyProfile)
-      setProfileDraft(nextProfile)
-      setSavedProfile(nextProfile)
-      setProfileLabel("Saved profile")
-      setProfileSaveStatus("saved")
-    } catch (error) {
-      setProfileSaveStatus("error")
-      setErrorMessage(error instanceof Error ? error.message : "Could not save profile.")
-    }
   }
 
   const exportConversation = (format: "txt" | "md" | "pdf") => {
@@ -517,7 +422,6 @@ export default function Home() {
         const nextProfile = buildProfileDraft(payload.user_profile)
         setProfileDraft(nextProfile)
         setSavedProfile(nextProfile)
-        setProfileLabel("Profile from onboarding")
       }
     } catch (error) {
       const isAbort = error instanceof Error && error.name === "AbortError"
@@ -573,13 +477,13 @@ export default function Home() {
               <Button
                 size="lg"
                 variant="outline"
-                className="border-sand/30 text-sand hover:bg-sand/10 font-semibold px-8 py-6 text-lg bg-transparent"
+                className="border-coral/40 text-white bg-coral hover:bg-coral/90 font-semibold px-8 py-6 text-lg"
                 onClick={() => {
                   focusChat()
                   sendMessage("Start onboarding")
                 }}
               >
-                Start Onboarding
+                📋 Start Onboarding
               </Button>
             </div>
           </div>
@@ -672,233 +576,49 @@ export default function Home() {
 
                 </Card>
 
-                <Card className="bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm mt-8">
-                  <h4 className="text-sm font-semibold text-navy mb-4">Related Links</h4>
-                  {usefulLinks.length === 0 ? (
-                    <p className="text-navy/70 text-center">
-                      Ask a question to see tailored NHS and LBS links here.
-                    </p>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {usefulLinks.map((link, idx) => (
-                        <a
-                          key={idx}
-                          href={link.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-3 p-4 rounded-lg border-2 border-navy/20 hover:border-teal hover:bg-teal/5 transition-all group animate-fade-in"
-                          style={{ animationDelay: `${idx * 60}ms` }}
-                        >
-                          <MapPin className="h-5 w-5 text-teal flex-shrink-0" />
-                          <span className="text-navy font-medium group-hover:text-teal transition-colors">{link.title}</span>
-                          <ChevronRight className="h-4 w-4 text-navy/40 ml-auto group-hover:text-teal transition-colors" />
-                        </a>
-                      ))}
+                {showRelatedLinks ? (
+                  <Card className="relative overflow-hidden bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm mt-8">
+                    <div className="absolute inset-x-0 top-0 h-1 bg-coral/90" />
+                    <div className="absolute -top-16 right-8 h-32 w-32 rounded-full bg-coral/10 blur-2xl" />
+                    <div className="flex items-center justify-between mb-6">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.2em] text-navy/50">Guided by your profile</p>
+                        <h4 className="text-lg font-semibold text-navy mt-2">Related Links</h4>
+                      </div>
+                      <div className="hidden sm:flex items-center gap-2 rounded-full border border-navy/15 bg-white/70 px-3 py-1 text-xs text-navy/60">
+                        Updated from your chat
+                      </div>
                     </div>
-                  )}
-                </Card>
+                    {usefulLinks.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed border-navy/20 bg-white/60 p-8 text-center text-navy/60">
+                        Ask a question to see tailored NHS and LBS links here.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {usefulLinks.map((link, idx) => (
+                          <a
+                            key={idx}
+                            href={link.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-3 rounded-xl border border-navy/20 bg-white/80 px-4 py-3 hover:border-coral/60 hover:bg-white transition-all group animate-fade-in"
+                            style={{ animationDelay: `${idx * 60}ms` }}
+                          >
+                            <MapPin className="h-5 w-5 text-coral flex-shrink-0" />
+                            <span className="text-navy font-medium group-hover:text-coral transition-colors">{link.title}</span>
+                            <ChevronRight className="h-4 w-4 text-navy/40 ml-auto group-hover:text-coral transition-colors" />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+                ) : null}
               </div>
             </div>
           </div>
         </section>
 
-        <section ref={knowledgeRef} className="container mx-auto px-4 pb-16">
-          <div className="max-w-5xl mx-auto">
-            <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
-              <Tabs defaultValue="knowledge" className="gap-4">
-                <TabsList className="w-full flex flex-wrap justify-start gap-2 bg-transparent p-0">
-                  <TabsTrigger
-                    value="knowledge"
-                    className="flex-none rounded-t-md border border-navy/10 bg-sand/60 px-3 py-1.5 text-sm font-semibold text-navy/70 data-[state=active]:bg-sand data-[state=active]:text-navy data-[state=active]:border-navy/20"
-                  >
-                    Knowledge base
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="profile"
-                    className="flex-none rounded-t-md border border-navy/10 bg-sand/60 px-3 py-1.5 text-sm font-semibold text-navy/70 data-[state=active]:bg-sand data-[state=active]:text-navy data-[state=active]:border-navy/20"
-                  >
-                    Edit profile
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="history"
-                    className="flex-none rounded-t-md border border-navy/10 bg-sand/60 px-3 py-1.5 text-sm font-semibold text-navy/70 data-[state=active]:bg-sand data-[state=active]:text-navy data-[state=active]:border-navy/20"
-                  >
-                    Chat history
-                  </TabsTrigger>
-                </TabsList>
 
-                <TabsContent value="knowledge">
-                  <div className="rounded-lg border border-navy/10 bg-white/70 p-4">
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-                      <h4 className="font-serif text-lg font-bold text-navy">Knowledge base</h4>
-                      <div className="flex items-center gap-2 bg-navy/5 border border-navy/10 rounded-full px-4 py-2">
-                        <Search className="h-4 w-4 text-navy/70" />
-                        <input
-                          type="text"
-                          value={knowledgeSearch}
-                          onChange={(event) => setKnowledgeSearch(event.target.value)}
-                          placeholder="Search NHS topics"
-                          className="bg-transparent text-navy placeholder:text-navy/50 text-sm focus:outline-none"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid gap-6 md:grid-cols-[240px_minmax(0,1fr)]">
-                      <div className="space-y-3 max-h-[260px] overflow-y-auto pr-2">
-                        {visibleArticles.map((article) => (
-                          <button
-                            key={article.id}
-                            className={`w-full text-left rounded-lg border px-3 py-2 transition-colors ${
-                              selectedArticle?.id === article.id
-                                ? "border-teal bg-teal/10 text-navy"
-                                : "border-navy/10 text-navy/70 hover:border-teal/60"
-                            }`}
-                            onClick={() => setSelectedArticle(article)}
-                          >
-                            <p className="text-sm font-semibold">{article.title}</p>
-                            <p className="text-xs text-navy/50 mt-1">{article.updatedAt}</p>
-                          </button>
-                        ))}
-                        {filteredArticles.length > 6 && (
-                          <button
-                            className="w-full rounded-lg border border-navy/10 px-3 py-2 text-xs font-semibold text-navy/70 hover:border-teal/60 hover:text-teal transition-colors"
-                            onClick={() => setShowAllArticles((prev) => !prev)}
-                          >
-                            {showAllArticles ? "Show fewer articles" : "Show more articles"}
-                          </button>
-                        )}
-                      </div>
-                      <div>
-                        {selectedArticle ? (
-                          <div>
-                            <h4 className="font-serif text-xl font-bold text-navy">{selectedArticle.title}</h4>
-                            <p className="text-xs text-navy/50 mt-1">
-                              Version {selectedArticle.version} ÔÇó Updated {selectedArticle.updatedAt}
-                            </p>
-                            <div className="mt-4 space-y-4 text-sm text-navy/80">
-                              {selectedArticle.content.split("\n\n").map((paragraph, idx) => (
-                                <p key={idx}>{paragraph}</p>
-                              ))}
-                            </div>
-                            <div className="mt-4 text-xs text-navy/60">
-                              Sources:{" "}
-                              {selectedArticle.sources.map((source, idx) => (
-                                <span key={source.url}>
-                                  <a className="underline" href={source.url} target="_blank" rel="noreferrer">
-                                    {source.title}
-                                  </a>
-                                  {idx < selectedArticle.sources.length - 1 ? ", " : ""}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-sm text-navy/60">
-                            Select an article to view details and NHS sources.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="profile">
-                  <div className="rounded-lg border border-navy/10 bg-white/70 p-4 space-y-6">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <h4 className="font-serif text-lg font-bold text-navy">Onboarding profile</h4>
-                        <p className="text-navy/70 mt-2">
-                          Edit these details any time. When onboarding finishes, this view updates automatically.
-                        </p>
-                      </div>
-                      <span className="text-xs text-navy/50">{profileLabel}</span>
-                    </div>
-
-                    <details className="group" open>
-                      <summary className="cursor-pointer text-sm font-semibold text-teal">
-                        Profile details
-                      </summary>
-                      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {profileFields.map((field) => (
-                          <div key={field.key}>
-                            <label className="block text-xs font-semibold text-navy/70 mb-2">{field.label}</label>
-                            <input
-                              type="text"
-                              value={profileDraft[field.key as keyof ProfileDraft]}
-                              onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
-                              placeholder={field.placeholder}
-                              className="w-full rounded-lg border border-navy/20 px-3 py-2 text-sm text-navy"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-
-                    <details>
-                      <summary className="cursor-pointer text-sm font-semibold text-teal">
-                        Additional context
-                      </summary>
-                      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {profileTextAreas.map((field) => (
-                          <div key={field.key}>
-                            <label className="block text-xs font-semibold text-navy/70 mb-2">{field.label}</label>
-                            <textarea
-                              value={profileDraft[field.key as keyof ProfileDraft]}
-                              onChange={(e) => handleProfileChange(field.key as keyof ProfileDraft, e.target.value)}
-                              placeholder={field.placeholder}
-                              rows={2}
-                              className="w-full rounded-lg border border-navy/20 px-3 py-2 text-sm text-navy"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-
-                    <div className="flex flex-wrap items-center gap-3">
-                      <Button onClick={saveProfile} className="bg-teal hover:bg-teal/90 text-white">
-                        <Save className="mr-2 h-4 w-4" />
-                        {profileSaveStatus === "saving" ? "Saving..." : "Save profile"}
-                      </Button>
-                      {profileSaveStatus === "saved" && (
-                        <span className="text-sm text-teal">Saved to this session.</span>
-                      )}
-                      {profileSaveStatus === "error" && (
-                        <span className="text-sm text-coral">Could not save profile.</span>
-                      )}
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="history">
-                  <div className="rounded-lg border border-navy/10 bg-white/70 p-4">
-                    <div className="space-y-2 max-h-[240px] overflow-y-auto pr-2">
-                      {sessions.length === 0 ? (
-                        <p className="text-xs text-navy/60">No saved sessions yet.</p>
-                      ) : (
-                        sessions.map((session) => (
-                          <button
-                            key={session.id}
-                            className={`w-full text-left rounded-md border px-2.5 py-2 transition-colors ${
-                              session.id === activeSessionKey
-                                ? "border-teal bg-teal/10 text-navy"
-                                : "border-navy/10 text-navy/70 hover:border-teal/60"
-                            }`}
-                            onClick={() => loadSession(session)}
-                          >
-                            <p className="text-sm font-semibold">{session.title}</p>
-                            <p className="text-[11px] text-navy/50">{formatTimestamp(session.updatedAt)}</p>
-                            <p className="text-[11px] text-navy/50 mt-1">
-                              Tags: {session.tags.join(", ") || "None"}
-                            </p>
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </Card>
-          </div>
-        </section>
 
         <footer className="container mx-auto px-4 pb-12">
           <div className="max-w-4xl mx-auto">

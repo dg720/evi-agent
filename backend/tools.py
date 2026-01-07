@@ -211,6 +211,24 @@ def guided_search(args, max_results_default: int = 5):
 
 
 
+def _parse_triage_json(raw: str):
+    if not raw:
+        return None
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        cleaned = cleaned.replace("json", "", 1).strip()
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return None
+    candidate = cleaned[start : end + 1]
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+
+
 def nhs_111_live_triage(args):
     """
     Lightweight LLM-led triage + routing for NHS 111.
@@ -304,11 +322,27 @@ should_lookup = true ONLY if:
     )
 
     raw = resp.output_text or ""
-    try:
-        parsed = json.loads(raw)
+    parsed = _parse_triage_json(raw)
+    if parsed is not None:
         return parsed
-    except json.JSONDecodeError:
-        return {"raw": raw, "error": "Could not parse triage result as JSON"}
+
+    strict_prompt = (
+        prompt
+        + "\nReturn ONLY valid JSON. No markdown, no commentary. "
+        "If unsure, still choose the safest routing based on the rules."
+    )
+    strict_resp = client.responses.create(
+        model="gpt-4o-mini",
+        input=strict_prompt,
+        tool_choice="none",
+        max_output_tokens=500,
+    )
+    strict_raw = strict_resp.output_text or ""
+    parsed = _parse_triage_json(strict_raw)
+    if parsed is not None:
+        return parsed
+
+    return {"raw": raw or strict_raw, "error": "Could not parse triage result as JSON"}
 
 
 tools = [

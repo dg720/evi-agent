@@ -23,21 +23,8 @@ export const metadata: Metadata = {
     "Navigate NHS services with confidence. Fast, friendly guidance for GP registration, triage, eligibility, and next steps across UK care pathways.",
   generator: "v0.app",
   icons: {
-    icon: [
-      {
-        url: "/icon-light-32x32.png",
-        media: "(prefers-color-scheme: light)",
-      },
-      {
-        url: "/icon-dark-32x32.png",
-        media: "(prefers-color-scheme: dark)",
-      },
-      {
-        url: "/icon.svg",
-        type: "image/svg+xml",
-      },
-    ],
-    apple: "/apple-icon.png",
+    icon: "/evida-icon.png",
+    apple: "/evida-icon.png",
   },
 }
 
