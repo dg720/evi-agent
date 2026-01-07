@@ -149,6 +149,8 @@ class AgentSession:
             return "onset"
         if "function" in lowered or "walk" in lowered or "eating" in lowered or "breathing" in lowered:
             return "function"
+        if "swelling" in lowered or "redness" in lowered or "heat" in lowered or "bruis" in lowered:
+            return "swelling"
         if "other symptoms" in lowered or "red flag" in lowered or "faint" in lowered or "bleeding" in lowered:
             return "red_flags"
         return None
