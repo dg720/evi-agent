@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -17,12 +17,8 @@ import {
   Shield,
   MapPin,
   ChevronRight,
-  AlertCircle,
   RotateCcw,
   Save,
-  BookOpen,
-  CheckCircle2,
-  Lock,
   Search,
 } from "lucide-react"
 import { knowledgeBase, type KnowledgeArticle } from "@/lib/knowledge-base"
@@ -50,14 +46,6 @@ type ProfileDraft = {
   mental_wellbeing: string
 }
 
-type RoadmapStep = {
-  key: string
-  label: string
-  prompt: string
-}
-
-type RoadmapStatus = "locked" | "available" | "completed"
-
 type ChatSession = {
   id: string
   sessionId: string | null
@@ -68,8 +56,6 @@ type ChatSession = {
   tags: string[]
   profileSnapshot: ProfileDraft
   usefulLinks: UsefulLink[]
-  completedSteps: number[]
-  activeStepIndex: number
 }
 
 type TrustItem = {
@@ -85,13 +71,6 @@ const initialMessages: ChatMessage[] = [
     role: "assistant",
     message: "Hi! I can help you navigate NHS services. What would you like to know?",
   },
-]
-
-const roadmapDefaults: RoadmapStep[] = [
-  { key: "profile", label: "Build your profile", prompt: "Start onboarding" },
-  { key: "eligibility", label: "Check NHS eligibility", prompt: "What NHS services am I eligible for?" },
-  { key: "gp-register", label: "Register with a GP", prompt: "How do I register with a GP?" },
-  { key: "triage", label: "Seek the right medical advice", prompt: "I need to figure out the right service for my symptoms." },
 ]
 
 const SESSION_STORAGE_KEY = "evi_chat_sessions_v1"
@@ -131,21 +110,6 @@ const trustItems: TrustItem[] = [
   },
 ]
 
-const onboardingQuestionSnippets = [
-  "what's your name",
-  "what is your name",
-  "what's your age range",
-  "how long will you stay",
-  "what's your london postcode",
-  "postcode / area",
-  "do you hold a uk visa",
-  "do you already have a registered gp",
-  "any long-term health conditions",
-  "do you take any regular medications",
-  "lifestyle area you want to improve",
-  "how has your mental wellbeing been recently",
-]
-
 const profileFields = [
   { key: "name", label: "Name", placeholder: "Optional" },
   { key: "age_range", label: "Age range", placeholder: "e.g., 18-24" },
@@ -160,19 +124,6 @@ const profileTextAreas = [
   { key: "medications", label: "Medications or treatment", placeholder: "Optional" },
   { key: "lifestyle_focus", label: "Lifestyle focus", placeholder: "e.g., fitness" },
   { key: "mental_wellbeing", label: "Mental wellbeing", placeholder: "Optional" },
-]
-
-const exampleResponses = [
-  {
-    question: "I just arrived. How do I register with a GP?",
-    response:
-      "You can register with a GP near your London address. Most practices accept online forms. Bring ID and proof of address if asked. I can find nearby practices if you share your full postcode.",
-  },
-  {
-    question: "I feel unwell. What should I do?",
-    response:
-      "I can guide you through an NHS 111 style triage to decide the right service. We will start with a few quick questions about symptoms and urgency.",
-  },
 ]
 
 const emptyProfile: ProfileDraft = {
@@ -259,29 +210,6 @@ const deriveTags = (messages: ChatMessage[]) => {
   return Array.from(new Set(tags))
 }
 
-const inferCompletedSteps = (messages: ChatMessage[], profile: ProfileDraft | null) => {
-  const completed: number[] = []
-  const text = messages.map((msg) => msg.message).join(" ").toLowerCase()
-  const hasProfile =
-    !!profile &&
-    ["age_range", "stay_length", "postcode", "visa_status", "gp_registered"].every(
-      (key) => String(profile[key as keyof ProfileDraft] || "").trim().length > 0
-    )
-
-  if (hasProfile) completed.push(0)
-  if (text.includes("eligible") || text.includes("eligibility")) completed.push(1)
-  if (text.includes("register") && text.includes("gp")) completed.push(2)
-    if (text.includes("pharmacy") || text.includes("111") || text.includes("a&e") || text.includes("triage")) completed.push(3)
-    return Array.from(new Set(completed))
-  }
-
-const roadmapStatusForIndex = (index: number, completedSteps: number[]): RoadmapStatus => {
-  if (completedSteps.includes(index)) return "completed"
-  if (index === 0) return "available"
-  if (completedSteps.includes(index - 1)) return "available"
-  return "locked"
-}
-
 const buildExportText = (session: ChatSession) => {
   const profileLines = Object.entries(session.profileSnapshot || {})
     .map(([key, value]) => `${key}: ${value || "Not provided"}`)
@@ -325,26 +253,6 @@ const buildExportMarkdown = (session: ChatSession) => {
   return `${header}${body}`
 }
 
-const relatedArticlesForTags = (tags: string[]) => {
-  const map: Record<string, string[]> = {
-    gp: ["gp-registration"],
-    "111": ["care-options"],
-    "a&e": ["care-options"],
-    pharmacy: ["care-options"],
-    eligibility: ["nhs-overview", "prescriptions-costs"],
-    mental: ["mental-health"],
-    prescriptions: ["prescriptions-costs"],
-  }
-  const ids = tags.flatMap((tag) => map[tag] || [])
-  return knowledgeBase.filter((article) => ids.includes(article.id))
-}
-
-const isOnboardingPrompt = (userInput: string, assistantReply: string) => {
-  const combined = `${userInput} ${assistantReply}`.toLowerCase()
-  if (combined.includes("onboarding")) return true
-  return onboardingQuestionSnippets.some((snippet) => combined.includes(snippet))
-}
-
 export default function Home() {
   const [chatInput, setChatInput] = useState("")
   const [isThinking, setIsThinking] = useState(false)
@@ -356,9 +264,6 @@ export default function Home() {
   const [savedProfile, setSavedProfile] = useState<ProfileDraft | null>(null)
   const [profileLabel, setProfileLabel] = useState("No saved profile yet")
   const [profileSaveStatus, setProfileSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
-  const [activeStepIndex, setActiveStepIndex] = useState(0)
-  const [completedSteps, setCompletedSteps] = useState<number[]>([])
-  const [quickReplies, setQuickReplies] = useState<string[]>([])
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [activeSessionKey, setActiveSessionKey] = useState<string | null>(null)
   const [knowledgeSearch, setKnowledgeSearch] = useState("")
@@ -369,8 +274,6 @@ export default function Home() {
   const knowledgeRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
-
-  const roadmapSteps = useMemo(() => roadmapDefaults, [])
 
   const createNewSession = (): ChatSession => {
     const now = new Date().toISOString()
@@ -384,8 +287,6 @@ export default function Home() {
       tags: [],
       profileSnapshot: emptyProfile,
       usefulLinks: [],
-      completedSteps: [],
-      activeStepIndex: 0,
     }
   }
 
@@ -406,8 +307,6 @@ export default function Home() {
         ? "Saved profile"
         : "No saved profile yet"
     )
-    setCompletedSteps(session.completedSteps || [])
-    setActiveStepIndex(session.activeStepIndex || 0)
   }
 
   useEffect(() => {
@@ -450,8 +349,6 @@ export default function Home() {
           messages,
           usefulLinks,
           profileSnapshot: savedProfile || profileDraft,
-          completedSteps,
-          activeStepIndex,
           tags,
           title,
           updatedAt: new Date().toISOString(),
@@ -462,27 +359,8 @@ export default function Home() {
       }
       return updated
     })
-  }, [activeSessionKey, messages, sessionId, usefulLinks, profileDraft, savedProfile, completedSteps, activeStepIndex])
+  }, [activeSessionKey, messages, sessionId, usefulLinks, profileDraft, savedProfile])
 
-  useEffect(() => {
-    const inferred = inferCompletedSteps(messages, savedProfile)
-    const sorted = [...new Set(inferred)].sort()
-    if (sorted.join(",") !== [...completedSteps].sort().join(",")) {
-      setCompletedSteps(sorted)
-    }
-  }, [messages, savedProfile, completedSteps])
-
-  useEffect(() => {
-    const nextIndex = roadmapSteps.findIndex(
-      (_, index) => roadmapStatusForIndex(index, completedSteps) === "available"
-    )
-    if (nextIndex >= 0 && nextIndex !== activeStepIndex) {
-      setActiveStepIndex(nextIndex)
-    }
-  }, [completedSteps, roadmapSteps, activeStepIndex])
-
-  const activeTags = useMemo(() => deriveTags(messages), [messages])
-  const relatedArticles = useMemo(() => relatedArticlesForTags(activeTags), [activeTags])
   const filteredArticles = useMemo(() => {
     const term = knowledgeSearch.trim().toLowerCase()
     if (!term) return knowledgeBase
@@ -512,17 +390,12 @@ export default function Home() {
     setTimeout(() => inputRef.current?.focus(), 350)
   }
 
-  const focusHowItWorks = () => {
-    knowledgeRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
-
   const startNewChat = () => {
     const fresh = createNewSession()
     setSessions((prev) => [fresh, ...prev])
     loadSession(fresh)
     setErrorMessage(null)
     setProfileSaveStatus("idle")
-    setQuickReplies([])
     setSelectedArticle(null)
   }
 
@@ -559,7 +432,6 @@ export default function Home() {
       setSavedProfile(nextProfile)
       setProfileLabel("Saved profile")
       setProfileSaveStatus("saved")
-      setCompletedSteps((prev) => (prev.includes(0) ? prev : [...prev, 0]))
     } catch (error) {
       setProfileSaveStatus("error")
       setErrorMessage(error instanceof Error ? error.message : "Could not save profile.")
@@ -607,21 +479,7 @@ export default function Home() {
     }, 300)
   }
 
-  const handleQuickReply = (reply: string) => {
-    if (reply.startsWith("Read:")) {
-      const title = reply.replace("Read:", "").trim()
-      const article = knowledgeBase.find((item) => item.title === title)
-      if (article) {
-        setSelectedArticle(article)
-        setKnowledgeSearch(article.title)
-        knowledgeRef.current?.scrollIntoView({ behavior: "smooth" })
-      }
-      return
-    }
-    sendMessage(reply)
-  }
-
-  const sendMessage = async (content: string, stepIndex?: number) => {
+  const sendMessage = async (content: string) => {
     const trimmed = content.trim()
     if (!trimmed || isThinking) return
 
@@ -652,7 +510,6 @@ export default function Home() {
       const payload = await response.json()
       setSessionId(payload.session_id)
       setMessages((prev) => [...prev, { role: "assistant", message: payload.reply }])
-      const nextMessages = [...messages, { role: "user", message: trimmed }, { role: "assistant", message: payload.reply }]
       if (Array.isArray(payload.useful_links)) {
         setUsefulLinks(payload.useful_links)
       }
@@ -661,40 +518,6 @@ export default function Home() {
         setProfileDraft(nextProfile)
         setSavedProfile(nextProfile)
         setProfileLabel("Profile from onboarding")
-        setCompletedSteps((prev) => (prev.includes(0) ? prev : [...prev, 0]))
-      }
-      if (typeof stepIndex === "number") {
-        setCompletedSteps((prev) => (prev.includes(stepIndex) ? prev : [...prev, stepIndex]))
-        if (stepIndex >= activeStepIndex) {
-          setActiveStepIndex(stepIndex + 1)
-        }
-      }
-      if (Array.isArray(payload.prompt_suggestions) && payload.prompt_suggestions.length > 0) {
-        if (isOnboardingPrompt(trimmed, payload.reply)) {
-          setQuickReplies([])
-        } else {
-          setQuickReplies(payload.prompt_suggestions.slice(0, 4))
-        }
-      } else {
-        const tags = deriveTags(nextMessages)
-        const related = relatedArticlesForTags(tags)
-        const profileMissing = !savedProfile
-        const nextRoadmapIndex = roadmapSteps.findIndex(
-          (_, index) => roadmapStatusForIndex(index, completedSteps) === "available"
-        )
-        if (isOnboardingPrompt(trimmed, payload.reply)) {
-          setQuickReplies([])
-        } else {
-          const suggestions = [
-            ...(profileMissing ? ["Start onboarding"] : []),
-            ...(nextRoadmapIndex >= 0 ? [roadmapSteps[nextRoadmapIndex].prompt] : []),
-            ...tags.includes("gp") ? ["Find a GP near me", "What documents do I need?"] : [],
-            ...tags.includes("111") ? ["Is this urgent?", "Where should I go?"] : [],
-            ...tags.includes("a&e") ? ["What counts as an emergency?", "Should I call 111?"] : [],
-            ...related.map((article) => `Read: ${article.title}`),
-          ]
-          setQuickReplies(Array.from(new Set(suggestions)).slice(0, 4))
-        }
       }
     } catch (error) {
       const isAbort = error instanceof Error && error.name === "AbortError"
@@ -751,61 +574,13 @@ export default function Home() {
                 size="lg"
                 variant="outline"
                 className="border-sand/30 text-sand hover:bg-sand/10 font-semibold px-8 py-6 text-lg bg-transparent"
-                onClick={focusHowItWorks}
+                onClick={() => {
+                  focusChat()
+                  sendMessage("Start onboarding")
+                }}
               >
-                See how it works
+                Start Onboarding
               </Button>
-            </div>
-          </div>
-        </section>
-
-        <section className="container mx-auto px-4 pb-12">
-          <div className="max-w-5xl mx-auto">
-            <h3 className="font-serif text-xl font-bold text-sand mb-4 text-center">
-              Your UK Healthcare Roadmap
-            </h3>
-            <div className="flex flex-wrap items-center justify-center gap-2 rounded-full border border-sand/20 bg-sand/5 px-4 py-3">
-              {roadmapSteps.map((step, idx) => {
-                const isCompleted = completedSteps.includes(idx)
-                const status = roadmapStatusForIndex(idx, completedSteps)
-                const isAvailable = status !== "locked"
-                const isActive = status === "available" && idx === activeStepIndex
-                return (
-                  <button
-                    key={step.label}
-                    className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all ${
-                      isActive
-                        ? "border-teal bg-teal/15 text-sand"
-                        : isCompleted
-                        ? "border-teal/60 bg-teal/10 text-sand/80"
-                        : "border-sand/30 bg-transparent text-sand/70 hover:border-sand/50"
-                    }`}
-                    onClick={() => {
-                      focusChat()
-                      if (!isAvailable) return
-                      setActiveStepIndex(idx)
-                      sendMessage(step.prompt, idx)
-                    }}
-                    disabled={isThinking}
-                  >
-                    <span
-                      className={`h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
-                        isCompleted || isActive ? "bg-teal text-white" : "bg-sand/20 text-sand"
-                      }`}
-                    >
-                      {idx + 1}
-                    </span>
-                    <span className="whitespace-nowrap">{step.label}</span>
-                    {status === "completed" ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-teal" />
-                    ) : status === "locked" ? (
-                      <Lock className="h-3.5 w-3.5 text-sand/60" />
-                    ) : (
-                      <ChevronRight className="h-3.5 w-3.5 text-teal" />
-                    )}
-                  </button>
-                )
-              })}
             </div>
           </div>
         </section>
@@ -895,25 +670,10 @@ export default function Home() {
                     </Button>
                   </div>
 
-                  {quickReplies.length > 0 && (
-                    <div className="mt-4">
-                      <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Quick replies</p>
-                      <div className="flex flex-wrap gap-2">
-                        {quickReplies.map((reply) => (
-                          <button
-                            key={reply}
-                            className="rounded-full border border-navy/20 px-3 py-1 text-xs text-navy hover:border-teal hover:text-teal transition-colors"
-                            onClick={() => handleQuickReply(reply)}
-                          >
-                            {reply}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </Card>
 
                 <Card className="bg-sand/95 border-sand/50 p-8 shadow-2xl backdrop-blur-sm mt-8">
+                  <h4 className="text-sm font-semibold text-navy mb-4">Related Links</h4>
                   {usefulLinks.length === 0 ? (
                     <p className="text-navy/70 text-center">
                       Ask a question to see tailored NHS and LBS links here.
@@ -936,30 +696,6 @@ export default function Home() {
                       ))}
                     </div>
                   )}
-                  {relatedArticles.length > 0 && (
-                    <div className="mt-6 border-t border-navy/10 pt-6">
-                      <div className="flex items-center gap-2 mb-3 text-navy">
-                        <BookOpen className="h-4 w-4 text-teal" />
-                        <h4 className="text-sm font-semibold">Related knowledge base articles</h4>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {relatedArticles.map((article) => (
-                          <button
-                            key={article.id}
-                            className="rounded-lg border border-navy/20 p-3 text-left hover:border-teal hover:bg-teal/5 transition-all"
-                            onClick={() => {
-                              setSelectedArticle(article)
-                              setKnowledgeSearch(article.title)
-                              knowledgeRef.current?.scrollIntoView({ behavior: "smooth" })
-                            }}
-                          >
-                            <p className="text-sm font-semibold text-navy">{article.title}</p>
-                            <p className="text-xs text-navy/60 mt-1">{article.summary}</p>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </Card>
               </div>
             </div>
@@ -969,20 +705,8 @@ export default function Home() {
         <section ref={knowledgeRef} className="container mx-auto px-4 pb-16">
           <div className="max-w-5xl mx-auto">
             <Card className="bg-sand/95 border-sand/50 p-4 shadow-2xl backdrop-blur-sm">
-              <Tabs defaultValue="help" className="gap-4">
+              <Tabs defaultValue="knowledge" className="gap-4">
                 <TabsList className="w-full flex flex-wrap justify-start gap-2 bg-transparent p-0">
-                  <TabsTrigger
-                    value="help"
-                    className="flex-none rounded-t-md border border-navy/10 bg-sand/60 px-3 py-1.5 text-sm font-semibold text-navy/70 data-[state=active]:bg-sand data-[state=active]:text-navy data-[state=active]:border-navy/20"
-                  >
-                    How I can help
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="examples"
-                    className="flex-none rounded-t-md border border-navy/10 bg-sand/60 px-3 py-1.5 text-sm font-semibold text-navy/70 data-[state=active]:bg-sand data-[state=active]:text-navy data-[state=active]:border-navy/20"
-                  >
-                    Example responses
-                  </TabsTrigger>
                   <TabsTrigger
                     value="knowledge"
                     className="flex-none rounded-t-md border border-navy/10 bg-sand/60 px-3 py-1.5 text-sm font-semibold text-navy/70 data-[state=active]:bg-sand data-[state=active]:text-navy data-[state=active]:border-navy/20"
@@ -1002,42 +726,6 @@ export default function Home() {
                     Chat history
                   </TabsTrigger>
                 </TabsList>
-
-                <TabsContent value="help">
-                  <div className="rounded-lg border border-navy/10 bg-white/70 p-4">
-                    <div className="prose prose-lg max-w-none text-navy/90 leading-relaxed">
-                      <p className="mb-4">
-                        Hi there, welcome to the LBS Community! My name is Evi - Your LBS Healthcare Companion.
-                      </p>
-                      <p className="mb-4">
-                        Now that you have made it to London, I am sure you have a lot of questions about navigating the
-                        NHS and LBS wellbeing services.
-                      </p>
-                      <p className="mb-4">Feel free to start with one of the examples below to get you oriented.</p>
-                      <ul className="space-y-2 mb-4">
-                        <li>Better understand when and how to use NHS services (GP, NHS 111, A&amp;E, and more!)</li>
-                        <li>Locate mental health or wellbeing support</li>
-                        <li>Get more information about preventative-care guidance</li>
-                      </ul>
-                      <p className="text-teal font-semibold">
-                        Or, type "onboarding" at any time, and I will ask a few brief questions to get to know you better.
-                      </p>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="examples">
-                  <div className="rounded-lg border border-navy/10 bg-white/70 p-4 space-y-4">
-                    {exampleResponses.map((item, idx) => (
-                      <div key={idx} className="rounded-lg border border-navy/15 bg-white/70 p-4">
-                        <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Student</p>
-                        <p className="text-navy font-medium mb-3">{item.question}</p>
-                        <p className="text-xs uppercase tracking-wide text-navy/50 mb-2">Evi</p>
-                        <p className="text-navy/80 text-sm leading-relaxed">{item.response}</p>
-                      </div>
-                    ))}
-                  </div>
-                </TabsContent>
 
                 <TabsContent value="knowledge">
                   <div className="rounded-lg border border-navy/10 bg-white/70 p-4">
@@ -1084,7 +772,7 @@ export default function Home() {
                           <div>
                             <h4 className="font-serif text-xl font-bold text-navy">{selectedArticle.title}</h4>
                             <p className="text-xs text-navy/50 mt-1">
-                              Version {selectedArticle.version} • Updated {selectedArticle.updatedAt}
+                              Version {selectedArticle.version} ÔÇó Updated {selectedArticle.updatedAt}
                             </p>
                             <div className="mt-4 space-y-4 text-sm text-navy/80">
                               {selectedArticle.content.split("\n\n").map((paragraph, idx) => (
@@ -1208,22 +896,6 @@ export default function Home() {
                   </div>
                 </TabsContent>
               </Tabs>
-            </Card>
-          </div>
-        </section>
-
-        <section className="container mx-auto px-4 pb-16">
-          <div className="max-w-4xl mx-auto">
-            <Card className="bg-coral/90 border-coral p-6 shadow-2xl backdrop-blur-sm">
-              <div className="flex items-start gap-4">
-                <AlertCircle className="h-8 w-8 text-white flex-shrink-0" />
-                <div>
-                  <h3 className="font-serif text-xl font-bold text-white mb-2">Emergency information</h3>
-                  <p className="text-white/95 leading-relaxed">
-                    If you are in immediate danger, call 999. For urgent advice, use NHS 111.
-                  </p>
-                </div>
-              </div>
             </Card>
           </div>
         </section>
