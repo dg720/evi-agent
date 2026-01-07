@@ -485,7 +485,7 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Button
                 size="lg"
-                className="bg-teal hover:bg-teal/90 text-white font-semibold px-8 py-6 text-lg"
+                className="w-full sm:w-56 justify-center bg-teal hover:bg-teal/90 text-white font-semibold px-8 py-6 text-lg"
                 onClick={focusChat}
               >
                 <MessageCircle className="mr-2 h-5 w-5" />
@@ -494,7 +494,7 @@ export default function Home() {
               <Button
                 size="lg"
                 variant="outline"
-                className="border-coral/40 text-white bg-coral hover:bg-coral/90 font-semibold px-8 py-6 text-lg"
+                className="w-full sm:w-56 justify-center border-coral/40 text-white bg-coral hover:bg-coral/90 font-semibold px-8 py-6 text-lg"
                 onClick={() => {
                   focusChat()
                   sendMessage("Start onboarding")
@@ -542,11 +542,8 @@ export default function Home() {
                   <div className="absolute -top-16 right-8 h-32 w-32 rounded-full bg-teal/10 blur-2xl" />
                   <div className="flex items-center justify-between mb-6">
                     <div>
-                      <p className="text-xs uppercase tracking-[0.2em] text-navy/50">Chat</p>
-                      <h4 className="text-lg font-semibold text-navy mt-2">Support chat</h4>
-                    </div>
-                    <div className="hidden sm:flex items-center gap-2 rounded-full border border-navy/15 bg-white/70 px-3 py-1 text-xs text-navy/60">
-                      Real-time guidance
+                      <p className="text-xs uppercase tracking-[0.2em] text-navy/50">AI Agent</p>
+                      <h4 className="text-lg font-semibold text-navy mt-2">Chat with Evi</h4>
                     </div>
                   </div>
                   {triageActive && (
