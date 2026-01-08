@@ -224,17 +224,48 @@ class AgentSession:
                 max_output_tokens=160,
             )
             raw = resp.output_text or "[]"
-            parsed = json.loads(raw)
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                cleaned = re.sub(r"^```[a-zA-Z]*\n|\n```$", "", cleaned).strip()
+            try:
+                parsed = json.loads(cleaned)
+            except Exception:
+                match = re.search(r"\[[\s\S]*\]", cleaned)
+                parsed = json.loads(match.group(0)) if match else []
             if isinstance(parsed, list):
-                cleaned = [str(q).strip() for q in parsed if str(q).strip()]
-                if cleaned:
-                    return cleaned[:count]
+                cleaned_list = [str(q).strip() for q in parsed if str(q).strip()]
+                deduped = []
+                seen = set()
+                for question in cleaned_list:
+                    normalized = self._normalize_question(question)
+                    key = normalized or question.lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    deduped.append(question)
+                if deduped:
+                    return deduped[:count]
         except Exception:
             pass
 
         fallback = []
+        local_topics = set(self.triage_asked_topics)
+        topic_questions = [
+            ("severity", "How severe is it on a 0 to 10 scale?"),
+            ("onset", "When did this start, and is it getting better or worse?"),
+            ("function", "Can you function normally (walk/eat/breathe) right now?"),
+            ("red_flags", "Any other worrying symptoms like chest pain, heavy bleeding, or feeling faint?"),
+        ]
         for _ in range(count):
-            fallback.append(self._fallback_triage_question())
+            next_question = None
+            for topic, question in topic_questions:
+                if topic not in local_topics:
+                    next_question = question
+                    local_topics.add(topic)
+                    break
+            if next_question is None:
+                next_question = "Is there anything else about your symptoms that feels important to mention?"
+            fallback.append(next_question)
         return fallback
 
     def _format_question_batch(self, questions: List[str]) -> str:
