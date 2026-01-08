@@ -685,6 +685,11 @@ class AgentSession:
             triage_result.get("rationale")
             or "Based on what you've shared, this is the safest next step."
         )
+        if "live triage" in rationale.lower():
+            if presenting_issue:
+                rationale = f"Based on your responses about {presenting_issue.strip()}, this is the safest next step."
+            else:
+                rationale = "Based on your responses so far, this is the safest next step."
         postcode_full = triage_result.get("postcode_full") or ""
 
         next_steps = []
@@ -759,12 +764,12 @@ class AgentSession:
             profile_context = {key: value for key, value in profile.items() if value}
         prompt = (
             "You are an NHS navigation coach. Use the summary to produce a concise, user-facing response. "
-            "Include SMART recommendations (Specific, Measurable, Achievable, Relevant, Time-bound). "
-            "Use short bold labels and bullets. Keep it under 300 words.\n\n"
+            "Adhere to SMART principles without naming them explicitly. "
+            "Use short bold labels. Keep it under 350 words.\n\n"
             "Structure with these labeled sections:\n"
             "- **Recommendation:** the single best route.\n"
             "- **Why:** 1 sentence on the key factors.\n"
-            "- **Next steps (SMART):** 2-4 bullets with timing.\n"
+            "- **Next steps:** 1-2 sentences with any timing or urgency cues.\n"
             "- **What to say:** a short script the user can reuse.\n\n"
             f"Profile context (if available): {json.dumps(profile_context)}\n"
             "Use the profile context to tailor guidance without inventing missing data.\n\n"
