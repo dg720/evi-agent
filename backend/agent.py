@@ -200,7 +200,8 @@ class AgentSession:
         questions = self._generate_triage_questions(3)
         for question in questions:
             self._record_triage_question(question)
-        return self._format_question_batch(questions)
+        intro = "I’ll start by assessing severity and timing. Please answer:"
+        return self._format_question_batch(questions, intro)
 
     def _generate_triage_questions(self, count: int) -> List[str]:
         prompt = (
@@ -268,8 +269,10 @@ class AgentSession:
             fallback.append(next_question)
         return fallback
 
-    def _format_question_batch(self, questions: List[str]) -> str:
+    def _format_question_batch(self, questions: List[str], intro: Optional[str] = None) -> str:
         lines = [f"{idx + 1}. {question}" for idx, question in enumerate(questions)]
+        if intro:
+            lines.insert(0, intro)
         return "\n".join(lines).strip()
 
     def _fallback_triage_result(self, postcode_full: str) -> Dict[str, Any]:
@@ -894,7 +897,8 @@ class AgentSession:
                     self._record_triage_question(question)
                 self.triage_round = 2
                 self.triage_awaiting_answers = True
-                reply = self._format_question_batch(questions)
+                intro = "Thanks — I have a final set of follow-ups to confirm the safest route:"
+                reply = self._format_question_batch(questions, intro)
                 return self._process_final_reply(user_input, reply)
 
             triage_result, nearest_services = self._run_final_triage()
