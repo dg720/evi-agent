@@ -6,6 +6,7 @@ Evi is a conversational assistant that helps international students understand U
 - **Audience:** International students and newcomers to the UK.
 - **Outcome:** Faster, confident decisions on where to go (GP, NHS 111, A&E, pharmacy).
 - **How it works:** A chat UI with onboarding and NHS-aligned triage rules (two short question batches, then a structured recommendation with rationale, next steps, and a reusable script).
+- **Model setup:** Single LLM with two internal prompts (triage question generator and SMART summarizer). No multimodal inputs.
 - **Safety:** Red-flag handling and explicit escalation to NHS 111 / 999.
 
 ## What's live
