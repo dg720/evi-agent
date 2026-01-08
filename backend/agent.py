@@ -65,10 +65,12 @@ class AgentSession:
 
         self.triage_active = False
         self.triage_known_answers: Dict[str, Any] = {}
-        self.triage_question_count = 0
-        self.triage_pending_question: Optional[str] = None
         self.triage_asked_questions: List[str] = []
         self.triage_asked_topics: set[str] = set()
+        self.triage_round = 0
+        self.triage_awaiting_answers = False
+        self.triage_presenting_issue: Optional[str] = None
+        self.triage_answer_notes: List[str] = []
 
         self.prompt_suggestions: List[str] = []
         self.last_useful_links: List[Dict[str, str]] = []
@@ -121,19 +123,16 @@ class AgentSession:
 
         if isinstance(parsed, dict):
             if parsed.get("status") == "need_more_info":
-                self.triage_active = True
-                follow_ups = parsed.get("follow_up_questions") or []
-                if isinstance(follow_ups, list) and follow_ups:
-                    self.triage_pending_question = str(follow_ups[0]).strip()
                 self.triage_known_answers.update(parsed.get("known_answers_update", {}))
-                self.triage_question_count = self.triage_question_count + 1
             elif parsed.get("status") == "final":
                 self.triage_active = False
                 self.triage_known_answers = {}
-                self.triage_question_count = 0
-                self.triage_pending_question = None
                 self.triage_asked_questions = []
                 self.triage_asked_topics = set()
+                self.triage_round = 0
+                self.triage_awaiting_answers = False
+                self.triage_presenting_issue = None
+                self.triage_answer_notes = []
 
         return parsed
 
@@ -176,6 +175,72 @@ class AgentSession:
             if topic:
                 self.triage_asked_topics.add(topic)
 
+    def _reset_triage_state(self) -> None:
+        self.triage_active = False
+        self.triage_known_answers = {}
+        self.triage_asked_questions = []
+        self.triage_asked_topics = set()
+        self.triage_round = 0
+        self.triage_awaiting_answers = False
+        self.triage_presenting_issue = None
+        self.triage_answer_notes = []
+
+    def _append_triage_answer(self, user_input: str) -> None:
+        note = (user_input or "").strip()
+        if not note:
+            return
+        self.triage_answer_notes.append(note)
+        self.triage_known_answers["user_followups"] = list(self.triage_answer_notes)
+
+    def _start_triage_flow(self, presenting_issue: str) -> str:
+        self.triage_active = True
+        self.triage_presenting_issue = presenting_issue.strip()
+        self.triage_round = 1
+        self.triage_awaiting_answers = True
+        questions = self._generate_triage_questions(3)
+        for question in questions:
+            self._record_triage_question(question)
+        return self._format_question_batch(questions)
+
+    def _generate_triage_questions(self, count: int) -> List[str]:
+        prompt = (
+            "You are a triage question generator. "
+            "Create short, distinct follow-up questions to safely route the user. "
+            "Avoid repeating topics already asked. "
+            "Return ONLY a JSON array of strings.\n\n"
+            f"Presenting issue: {self.triage_presenting_issue}\n"
+            f"Known answers: {json.dumps(self.triage_known_answers)}\n"
+            f"Asked questions: {json.dumps(self.triage_asked_questions)}\n"
+            f"Asked topics: {json.dumps(sorted(self.triage_asked_topics))}\n"
+            f"Question count to generate: {count}"
+        )
+        try:
+            resp = self.safe_create(
+                model="gpt-4o-mini",
+                store=True,
+                input=[{"role": "system", "content": prompt}],
+                tools=[],
+                tool_choice="none",
+                max_output_tokens=160,
+            )
+            raw = resp.output_text or "[]"
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                cleaned = [str(q).strip() for q in parsed if str(q).strip()]
+                if cleaned:
+                    return cleaned[:count]
+        except Exception:
+            pass
+
+        fallback = []
+        for _ in range(count):
+            fallback.append(self._fallback_triage_question())
+        return fallback
+
+    def _format_question_batch(self, questions: List[str]) -> str:
+        lines = [f"{idx + 1}. {question}" for idx, question in enumerate(questions)]
+        return "\n".join(lines).strip()
+
     def _fallback_triage_result(self, postcode_full: str) -> Dict[str, Any]:
         return {
             "status": "final",
@@ -185,6 +250,61 @@ class AgentSession:
             "postcode_full": postcode_full,
             "should_lookup": False,
         }
+
+    def _build_triage_context(self) -> str:
+        parts = [self.triage_presenting_issue or ""]
+        if self.triage_answer_notes:
+            parts.append("Follow-up answers: " + " ".join(self.triage_answer_notes))
+        return " ".join(part for part in parts if part).strip()
+
+    def _run_final_triage(self) -> Tuple[Dict[str, Any], Optional[Any]]:
+        postcode_full = ""
+        if isinstance(self.user_profile, dict):
+            postcode_full = self.user_profile.get("postcode_full") or ""
+
+        known_answers = dict(self.triage_known_answers)
+        if self.triage_asked_questions:
+            known_answers["asked_questions"] = list(self.triage_asked_questions)
+        if self.triage_answer_notes:
+            known_answers["user_followups"] = list(self.triage_answer_notes)
+
+        tool_args = {
+            "presenting_issue": self._build_triage_context(),
+            "postcode_full": postcode_full,
+            "known_answers": known_answers,
+        }
+        tool_result = execute_tool("nhs_111_live_triage", tool_args)
+        parsed_tool = None
+        try:
+            parsed_tool = tool_result if isinstance(tool_result, dict) else json.loads(tool_result)
+        except Exception:
+            parsed_tool = None
+        if not isinstance(parsed_tool, dict) or parsed_tool.get("status") not in {"need_more_info", "final"}:
+            parsed_tool = self._fallback_triage_result(postcode_full)
+
+        if isinstance(parsed_tool, dict) and parsed_tool.get("status") != "final":
+            parsed_tool = self._fallback_triage_result(postcode_full)
+
+        nearest_services = None
+        if (
+            isinstance(parsed_tool, dict)
+            and parsed_tool.get("status") == "final"
+            and parsed_tool.get("should_lookup")
+            and parsed_tool.get("postcode_full")
+            and parsed_tool.get("suggested_service") in {"GP", "A&E"}
+        ):
+            try:
+                nearest_services = tool_nearest_nhs_services(
+                    {
+                        "postcode_full": parsed_tool.get("postcode_full", ""),
+                        "service_type": parsed_tool.get("suggested_service"),
+                        "n": 3,
+                    }
+                )
+            except Exception:
+                nearest_services = None
+
+        return parsed_tool, nearest_services
 
     # -----------------------------
     # ONBOARDING HELPERS
@@ -492,12 +612,17 @@ class AgentSession:
         lines.append(f"Safety check: {safety_net}")
         return "\n".join(lines)
 
-    def _format_triage_smart_response(self, summary: str) -> str:
+    def _format_triage_smart_response(self, summary: str, profile: Optional[Dict[str, Any]] = None) -> str:
+        profile_context = {}
+        if isinstance(profile, dict):
+            profile_context = {key: value for key, value in profile.items() if value}
         prompt = (
             "You are an NHS navigation coach. Use the summary to produce a concise, user-facing response. "
             "Include SMART recommendations (Specific, Measurable, Achievable, Relevant, Time-bound). "
             "Do NOT use the headings: Recommendation, Why, What to do next, What to say, Safety net. "
             "Use short bold labels and bullets. Keep it under 140 words.\n\n"
+            f"Profile context (if available): {json.dumps(profile_context)}\n"
+            "Use the profile context to tailor guidance without inventing missing data.\n\n"
             f"Summary:\n{summary}"
         )
         resp = self.safe_create(
@@ -518,9 +643,10 @@ class AgentSession:
         triage_result: Dict[str, Any],
         presenting_issue: str,
         nearest_services: Optional[Any],
+        profile: Optional[Dict[str, Any]] = None,
     ) -> str:
         summary = self._build_triage_summary(triage_result, presenting_issue, nearest_services)
-        return self._format_triage_smart_response(summary)
+        return self._format_triage_smart_response(summary, profile)
 
     def _contains_action(self, text: str) -> bool:
         lowered = (text or "").lower()
@@ -726,27 +852,35 @@ class AgentSession:
             return self._process_final_reply(user_input, reply)
 
         # -------------------------------
+        # SHORT-CIRCUIT: ACTIVE TRIAGE
+        # -------------------------------
+        if self.triage_active and self.triage_awaiting_answers:
+            self._append_triage_answer(user_input)
+            self.triage_awaiting_answers = False
+            if self.triage_round == 1:
+                questions = self._generate_triage_questions(3)
+                for question in questions:
+                    self._record_triage_question(question)
+                self.triage_round = 2
+                self.triage_awaiting_answers = True
+                reply = self._format_question_batch(questions)
+                return self._process_final_reply(user_input, reply)
+
+            triage_result, nearest_services = self._run_final_triage()
+            presenting_issue = self._build_triage_context()
+            reply = self._build_routing_response(
+                triage_result=triage_result,
+                presenting_issue=presenting_issue,
+                nearest_services=nearest_services,
+                profile=self.user_profile,
+            )
+            self._reset_triage_state()
+            return self._process_final_reply(user_input, reply)
+
+        # -------------------------------
         # PINNED CONTEXT (short!)
         # -------------------------------
         pinned = []
-
-        if self.triage_active:
-            if self.triage_asked_questions:
-                self.triage_known_answers["asked_questions"] = list(self.triage_asked_questions)
-            pinned.append(
-                {
-                    "role": "system",
-                    "content": (
-                        "TRIAGE MODE IS ACTIVE. "
-                        "Do NOT call onboarding unless user explicitly says 'onboarding'. "
-                        f"Use nhs_111_live_triage with known_answers={json.dumps(self.triage_known_answers)}. "
-                        "Ask only triage follow-up questions until triage status='final'. "
-                        "Do NOT repeat topics already in known_answers (e.g., severity, onset, injury/trauma, functional ability, red flags already covered). "
-                        f"You have already asked {self.triage_question_count} follow-ups. "
-                        "Tailor follow-ups to the presenting issue, keep them concise, aim to finish within 5-8 questions, and NEVER exceed 10; if you already have 5 answers or 5 questions asked, move to a final decision."
-                    ),
-                }
-            )
 
         # -------------------------------
         # FIRST MODEL CALL
@@ -765,12 +899,12 @@ class AgentSession:
         )
 
         final_response = resp
-        triage_called_this_turn = False
         tool_rounds = 0
         bailed_with_unresolved_calls = False
         triage_lookup_done = False
         triage_result: Optional[Dict[str, Any]] = None
         nearest_services_result: Optional[Any] = None
+        triage_start_args: Optional[Dict[str, Any]] = None
 
         # -------------------------------
         # BATCH TOOL HANDLING LOOP
@@ -785,9 +919,16 @@ class AgentSession:
             if not tool_calls:
                 break
 
-            # Guard: only one triage call per user turn
-            if triage_called_this_turn and all(call.name == "nhs_111_live_triage" for call in tool_calls):
-                bailed_with_unresolved_calls = True
+            triage_call = next((call for call in tool_calls if call.name == "nhs_111_live_triage"), None)
+            if triage_call is not None:
+                raw_args = triage_call.arguments
+                if isinstance(raw_args, str):
+                    try:
+                        triage_start_args = json.loads(raw_args)
+                    except Exception:
+                        triage_start_args = {}
+                else:
+                    triage_start_args = raw_args or {}
                 break
 
             outputs = [{"role": "system", "content": self.system_prompt}]
@@ -806,9 +947,6 @@ class AgentSession:
                     args = raw_args or {}
 
                 tool_result = execute_tool(tool_name, args)
-
-                if tool_name == "nhs_111_live_triage":
-                    triage_called_this_turn = True
 
                 parsed_tool = self._update_state_from_tool(tool_name, tool_result)
 
@@ -873,22 +1011,20 @@ class AgentSession:
         # -------------------------------
         agent_reply = final_response.output_text or ""
 
+        if triage_start_args is not None:
+            presenting_issue = triage_start_args.get("presenting_issue") or user_input
+            self._reset_triage_state()
+            self.triage_known_answers = triage_start_args.get("known_answers", {}) or {}
+            reply = self._start_triage_flow(presenting_issue)
+            return self._process_final_reply(user_input, reply)
+
         if isinstance(triage_result, dict) and triage_result.get("status") == "final":
             agent_reply = self._build_routing_response(
                 triage_result=triage_result,
                 presenting_issue=user_input,
                 nearest_services=nearest_services_result,
+                profile=self.user_profile,
             )
-
-        if not bailed_with_unresolved_calls and self.triage_active and self.triage_pending_question:
-            question = self.triage_pending_question
-            topic = self._topic_from_question(question)
-            normalized = self._normalize_question(question)
-            if normalized in self.triage_asked_questions or (topic and topic in self.triage_asked_topics):
-                question = self._fallback_triage_question()
-            self._record_triage_question(question)
-            self.triage_pending_question = None
-            agent_reply = question
 
         # If unresolved tool calls, force text-only reply
         if bailed_with_unresolved_calls:
